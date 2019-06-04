@@ -55,14 +55,15 @@ resnet.eval()
 resnet.forward = forward.__get__(resnet, ResNet)
 
 def create_dataset(split):
-    dataloader = DataLoader(CLEVR(sys.argv[1], split), batch_size=batch_size,
+    root = sys.argv[1]
+    dataloader = DataLoader(CLEVR(root, split), batch_size=batch_size,
                             num_workers=4)
 
     size = len(dataloader)
 
     print(split, 'total', size * batch_size)
 
-    f = h5py.File('data/{}_features.hdf5'.format(split), 'w', libver='latest')
+    f = h5py.File(os.path.join(root, 'preprocessed/{}_features.hdf5').format(split), 'w', libver='latest')
     dset = f.create_dataset('data', (size * batch_size, 1024, 14, 14),
                             dtype='f4')
 

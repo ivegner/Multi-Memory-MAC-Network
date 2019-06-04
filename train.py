@@ -1,4 +1,5 @@
 import sys
+import os
 import pickle
 from collections import Counter
 
@@ -27,8 +28,8 @@ def accumulate(model1, model2, decay=0.999):
         par1[k].data.mul_(decay).add_(1 - decay, par2[k].data)
 
 
-def train(epoch):
-    clevr = CLEVR(sys.argv[1], transform=transform)
+def train(clevr_dir, epoch):
+    clevr = CLEVR(clevr_dir, transform=transform)
     train_set = DataLoader(
         clevr, batch_size=batch_size, num_workers=4, collate_fn=collate_data
     )
@@ -70,8 +71,8 @@ def train(epoch):
     clevr.close()
 
 
-def valid(epoch):
-    clevr = CLEVR(sys.argv[1], 'val', transform=None)
+def valid(clevr_dir, epoch):
+    clevr = CLEVR(clevr_dir, 'val', transform=None)
     valid_set = DataLoader(
         clevr, batch_size=batch_size, num_workers=4, collate_fn=collate_data
     )
@@ -105,7 +106,8 @@ def valid(epoch):
 
 
 if __name__ == '__main__':
-    with open('data/dic.pkl', 'rb') as f:
+    clevr_dir = sys.argv[1]
+    with open(os.path.join(clevr_dir, 'preprocessed/dic.pkl'), 'rb') as f:
         dic = pickle.load(f)
 
     n_words = len(dic['word_dic']) + 1
@@ -119,8 +121,8 @@ if __name__ == '__main__':
     optimizer = optim.Adam(net.parameters(), lr=1e-4)
 
     for epoch in range(n_epoch):
-        train(epoch)
-        valid(epoch)
+        train(clevr_dir, epoch)
+        valid(clevr_dir, epoch)
 
         with open(
             'checkpoint/checkpoint_{}.model'.format(str(epoch + 1).zfill(2)), 'wb'

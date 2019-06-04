@@ -126,10 +126,10 @@ class MACUnit(nn.Module):
         return mask
 
     def forward(self, context, question, knowledge):
-        b_size = question.size(0)
+        batch_size = question.size(0)
 
-        control = self.control_0.expand(b_size, self.dim)
-        memory = self.mem_0.expand(b_size, self.dim)
+        control = self.control_0.expand(batch_size, self.dim)
+        memory = self.mem_0.expand(batch_size, self.dim)
 
         if self.training:
             control_mask = self.get_mask(control, self.dropout)
@@ -195,10 +195,10 @@ class MACNetwork(nn.Module):
         kaiming_uniform_(self.classifier[0].weight)
 
     def forward(self, image, question, question_len, dropout=0.15):
-        b_size = question.size(0)
+        batch_size = question.size(0)
 
         img = self.conv(image)
-        img = img.view(b_size, self.dim, -1)
+        img = img.view(batch_size, self.dim, -1)
 
         embed = self.embed(question)
         embed = nn.utils.rnn.pack_padded_sequence(embed, question_len,
@@ -207,10 +207,12 @@ class MACNetwork(nn.Module):
         lstm_out, _ = nn.utils.rnn.pad_packed_sequence(lstm_out,
                                                     batch_first=True)
         lstm_out = self.lstm_proj(lstm_out)
-        h = h.permute(1, 0, 2).contiguous().view(b_size, -1)
+        h = h.permute(1, 0, 2).contiguous().view(batch_size, -1)
 
+        # Run MAC classifier
         memory = self.mac(lstm_out, h, img)
 
+        # Read out output
         out = torch.cat([memory, h], 1)
         out = self.classifier(out)
 

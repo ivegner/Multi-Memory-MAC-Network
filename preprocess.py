@@ -9,7 +9,7 @@ from torchvision import transforms
 from PIL import Image
 from transforms import Scale
 
-def process_question(root, split, word_dic=None, answer_dic=None):
+def process_question(root, out_dir, split, word_dic=None, answer_dic=None):
     if word_dic is None:
         word_dic = {}
 
@@ -50,16 +50,20 @@ def process_question(root, split, word_dic=None, answer_dic=None):
         result.append((question['image_filename'], question_token, answer,
                     question['question_family_index']))
 
-    with open(f'data/{split}.pkl', 'wb') as f:
+    with open(os.path.join(out_dir, f'{split}.pkl'), 'wb') as f:
         pickle.dump(result, f)
 
     return word_dic, answer_dic
 
 if __name__ == '__main__':
     root = sys.argv[1]
+    preprocessed_dir = os.path.join(root, 'preprocessed')
 
-    word_dic, answer_dic = process_question(root, 'train')
-    process_question(root, 'val', word_dic, answer_dic)
+    if not os.path.exists(preprocessed_dir):
+        os.mkdir(preprocessed_dir)
 
-    with open('data/dic.pkl', 'wb') as f:
+    word_dic, answer_dic = process_question(root, preprocessed_dir, 'train')
+    process_question(root, preprocessed_dir, 'val', word_dic, answer_dic)
+
+    with open(os.path.join(preprocessed_dir, 'dic.pkl'), 'wb') as f:
         pickle.dump({'word_dic': word_dic, 'answer_dic': answer_dic}, f)

@@ -12,14 +12,14 @@ from transforms import Scale
 
 class CLEVR(Dataset):
     def __init__(self, root, split='train', transform=None):
-        with open(f'data/{split}.pkl', 'rb') as f:
+        with open(os.path.join(root, f'preprocessed/{split}.pkl'), 'rb') as f:
             self.data = pickle.load(f)
 
         # self.transform = transform
         self.root = root
         self.split = split
 
-        self.h = h5py.File('data/{}_features.hdf5'.format(split), 'r')
+        self.h = h5py.File(os.path.join(root, f'preprocessed/{split}_features.hdf5'), 'r')
         self.img = self.h['data']
 
     def close(self):
