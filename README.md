@@ -2,7 +2,7 @@
 Memory, Attention and Composition (MAC) Network for CLEVR from Compositional Attention Networks for Machine Reasoning (https://arxiv.org/abs/1803.03067) implemented in PyTorch
 
 Requirements:
-* Python 3.6
+* Python 3
 * PyTorch 1.*
 * torch-vision
 * Pillow
