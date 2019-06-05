@@ -10,17 +10,18 @@ import h5py
 
 from transforms import Scale
 
+
 class CLEVR(Dataset):
-    def __init__(self, root, split='train', transform=None):
-        with open(os.path.join(root, f'preprocessed/{split}.pkl'), 'rb') as f:
+    def __init__(self, root, split="train", transform=None):
+        with open(os.path.join(root, f"preprocessed/{split}.pkl"), "rb") as f:
             self.data = pickle.load(f)
 
         # self.transform = transform
         self.root = root
         self.split = split
 
-        self.h = h5py.File(os.path.join(root, f'preprocessed/{split}_features.hdf5'), 'r')
-        self.img = self.h['data']
+        self.h = h5py.File(os.path.join(root, f"preprocessed/{split}_features.hdf5"), "r")
+        self.img = self.h["data"]
 
     def close(self):
         self.h.close()
@@ -31,7 +32,7 @@ class CLEVR(Dataset):
         #                            self.split, imgfile)).convert('RGB')
 
         # img = self.transform(img)
-        id = int(imgfile.rsplit('_', 1)[1][:-4])
+        id = int(imgfile.rsplit("_", 1)[1][:-4])
         img = torch.from_numpy(self.img[id])
 
         return img, question, len(question), answer, family
@@ -39,14 +40,17 @@ class CLEVR(Dataset):
     def __len__(self):
         return len(self.data)
 
-transform = transforms.Compose([
-    Scale([224, 224]),
-    transforms.Pad(4),
-    transforms.RandomCrop([224, 224]),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5, 0.5, 0.5],
-                        std=[0.5, 0.5, 0.5])
-])
+
+transform = transforms.Compose(
+    [
+        Scale([224, 224]),
+        transforms.Pad(4),
+        transforms.RandomCrop([224, 224]),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+    ]
+)
+
 
 def collate_data(batch):
     images, lengths, answers, families = [], [], [], []
@@ -66,5 +70,10 @@ def collate_data(batch):
         answers.append(answer)
         families.append(family)
 
-    return torch.stack(images), torch.from_numpy(questions), \
-        lengths, torch.LongTensor(answers), families
+    return (
+        torch.stack(images),
+        torch.from_numpy(questions),
+        torch.tensor(lengths),
+        torch.LongTensor(answers),
+        families,
+    )
