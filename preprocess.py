@@ -70,4 +70,3 @@ if __name__ == "__main__":
 
     with open(os.path.join(preprocessed_dir, "dic.pkl"), "wb") as f:
         pickle.dump({"word_dic": word_dic, "answer_dic": answer_dic}, f)
-

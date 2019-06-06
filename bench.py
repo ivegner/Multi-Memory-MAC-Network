@@ -17,7 +17,8 @@ batch_size = 64
 n_epoch = 20
 dim = 512
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def accumulate(model1, model2, decay=0.999):
     par1 = dict(model1.named_parameters())
@@ -25,6 +26,7 @@ def accumulate(model1, model2, decay=0.999):
 
     for k in par1.keys():
         par1[k].data.mul_(decay).add_(1 - decay, par2[k].data)
+
 
 def train():
     moving_loss = 0
@@ -42,10 +44,8 @@ def train():
         loss = criterion(output, answer)
         loss.backward()
         optimizer.step()
-        correct = output.detach().argmax(1) \
-                == answer
-        correct = torch.tensor(correct, dtype=torch.float32).sum() \
-                    / batch_size
+        correct = output.detach().argmax(1) == answer
+        correct = torch.tensor(correct, dtype=torch.float32).sum() / batch_size
 
         if moving_loss == 0:
             moving_loss = correct
@@ -55,12 +55,13 @@ def train():
 
         accumulate(net_running, net)
 
-if __name__ == '__main__':
-    with open('data/dic.pkl', 'rb') as f:
+
+if __name__ == "__main__":
+    with open("data/dic.pkl", "rb") as f:
         dic = pickle.load(f)
 
-    n_words = len(dic['word_dic']) + 1
-    n_answers = len(dic['answer_dic'])
+    n_words = len(dic["word_dic"]) + 1
+    n_answers = len(dic["answer_dic"])
 
     net = MACNetwork(n_words, dim).to(device)
     net_running = MACNetwork(n_words, dim).to(device)

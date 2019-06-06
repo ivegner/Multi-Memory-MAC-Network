@@ -3,6 +3,7 @@
 from PIL import Image
 import collections
 
+
 class Scale(object):
     """Rescale the input PIL.Image to the given size.
 

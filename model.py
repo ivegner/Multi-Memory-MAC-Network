@@ -269,7 +269,7 @@ class MACNetwork(nn.Module):
         self.batch_size = batch_size
         self.save_attns = save_attns
 
-        self.saved_attns=None
+        self.saved_attns = None
         self.reset()
 
     def reset(self):
@@ -311,4 +311,3 @@ class MACNetwork(nn.Module):
         """Start saving attentions (if you've started testing, without reinitializing the model)"""
         self.save_attns = True
         self.mac.save_attns = True
-
