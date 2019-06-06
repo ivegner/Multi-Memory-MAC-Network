@@ -50,16 +50,22 @@ class ReadUnit(nn.Module):
         self.mem = nn.ModuleList([linear(dim, dim) for _ in range(n_memories)])
         self.concat = nn.ModuleList([linear(dim * 2, dim) for _ in range(n_memories)])
         self.attn = nn.ModuleList([linear(dim, 1) for _ in range(n_memories)])
+
+        self.saved_attns = []
         self.n_memories = n_memories
 
     def forward(self, memory, know, control):
         read = []
+        self.saved_attns = []
         for i in range(self.n_memories):
             mem = self.mem[i](memory[-1][i]).unsqueeze(2)
             concat = self.concat[i](torch.cat([mem * know, know], 1).permute(0, 2, 1))
             attn = concat * control[-1].unsqueeze(1)
             attn = self.attn[i](attn).squeeze(2)
             attn = F.softmax(attn, 1).unsqueeze(1)
+
+            # save attentions from this step in case the MACUnit wants to retrieve them
+            self.saved_attns.append(attn)
 
             read.append((attn * know).sum(2))
 
@@ -91,9 +97,12 @@ class WriteUnit(nn.Module):
         self.n_memories = n_memories
         self.dim = dim
 
+        self.saved_attns = []
+
     def forward(self, memories, retrieved, controls):
         prev_mem = memories[-1]
 
+        self.saved_attns = []
         indep_mem = []
         for i in range(self.n_memories):
             concat = self.concat[i](torch.cat([retrieved[i], prev_mem[i]], 1))
@@ -125,6 +134,8 @@ class WriteUnit(nn.Module):
             cross_attn = cross_attn.permute(1, 0, 2)  # n_memories, batch_size, dim
             cross_attn = F.softmax(cross_attn, 0)  # across memories
 
+            self.saved_attns.append(cross_attn)
+
             # apply attn to other memories
             mem_stack = torch.stack(indep_mem, 0)
             combined_mem = (mem_stack * cross_attn).sum(0)
@@ -137,7 +148,14 @@ class WriteUnit(nn.Module):
 
 class MACUnit(nn.Module):
     def __init__(
-        self, dim, max_step=12, n_memories=3, self_attention=False, memory_gate=False, dropout=0.15
+        self,
+        dim,
+        max_step=12,
+        n_memories=3,
+        self_attention=False,
+        memory_gate=False,
+        dropout=0.15,
+        save_attns=False,
     ):
         super().__init__()
 
@@ -154,6 +172,9 @@ class MACUnit(nn.Module):
         self.max_step = max_step
         self.dropout = dropout
         self.n_memories = n_memories
+
+        self.save_attns = save_attns
+        self.saved_attns = []
 
     def get_mask(self, x, dropout):
         mask = torch.empty_like(x).bernoulli_(1 - dropout)
@@ -192,6 +213,11 @@ class MACUnit(nn.Module):
                 for i, (mask, mem) in enumerate(zip(memory_masks, memory)):
                     memory[i] = mem * mask
             memories.append(memory)
+            if self.save_attns:
+                s = {}
+                s["read"] = self.read.saved_attns
+                s["write"] = self.write.saved_attns
+                self.saved_attns.append(s)
 
         return memory
 
@@ -209,6 +235,7 @@ class MACNetwork(nn.Module):
         classes=28,
         dropout=0.15,
         n_memories=3,
+        save_attns=False,
     ):
         super().__init__()
 
@@ -230,6 +257,7 @@ class MACNetwork(nn.Module):
             self_attention=self_attention,
             memory_gate=memory_gate,
             dropout=dropout,
+            save_attns=save_attns,
         )
 
         self.classifier = nn.Sequential(
@@ -239,7 +267,9 @@ class MACNetwork(nn.Module):
         self.max_step = max_step
         self.dim = dim
         self.batch_size = batch_size
+        self.save_attns = save_attns
 
+        self.saved_attns=None
         self.reset()
 
     def reset(self):
@@ -268,9 +298,17 @@ class MACNetwork(nn.Module):
         # Run MAC classifier
         memory = self.mac(lstm_out, h, img)  # list of mems
         memory = torch.cat(memory, 1)
+        if self.save_attns:
+            self.saved_attns = self.mac.saved_attns
 
         # Read out output
         out = torch.cat([memory, h], 1)
         out = self.classifier(out)
 
         return out
+
+    def start_saving_attns(self):
+        """Start saving attentions (if you've started testing, without reinitializing the model)"""
+        self.save_attns = True
+        self.mac.save_attns = True
+

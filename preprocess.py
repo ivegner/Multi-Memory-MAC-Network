@@ -66,6 +66,7 @@ if __name__ == "__main__":
 
     word_dic, answer_dic = process_question(root, preprocessed_dir, "train")
     process_question(root, preprocessed_dir, "val", word_dic, answer_dic)
+    process_question(root, preprocessed_dir, "test", word_dic, answer_dic)
 
     with open(os.path.join(preprocessed_dir, "dic.pkl"), "wb") as f:
         pickle.dump({"word_dic": word_dic, "answer_dic": answer_dic}, f)

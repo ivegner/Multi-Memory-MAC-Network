@@ -17,7 +17,7 @@ Avg Acc: 0.94170
 At 10 epochs, accuracy is supposed to be 95.75%
 At 20, 96.5%
 
-# 3 Memories (n=3)
+# 3 Memories (n=3) [times are on one GPU]
 Epoch: 1; Loss: 0.91446; Acc: 0.51202: [1:07:42<00:00,  2.93it/s]
 Avg Acc: 0.53016
 Epoch: 2; Loss: 0.71245; Acc: 0.61467: [1:07:51<00:00,  3.05it/s]
@@ -52,3 +52,23 @@ Epoch: 16; Loss: 0.02573; Acc: 0.96864: [1:08:08<00:00,  3.33it/s]
 Avg Acc: 0.96834
 
 ## 7 Memories (n=7)
+Epoch: 1; Loss: 0.65650; Acc: 0.60635: [1:30:01<00:00,  2.13it/s]
+Avg Acc: 0.61422
+Epoch: 2; Loss: 0.41662; Acc: 0.72297: [1:30:25<00:00,  2.25it/s]
+Avg Acc: 0.75226
+Epoch: 3; Loss: 0.30118; Acc: 0.86245: [1:30:34<00:00,  2.32it/s]
+Avg Acc: 0.90065
+Epoch: 4; Loss: 0.19540; Acc: 0.89655: [1:30:26<00:00,  2.18it/s]
+Avg Acc: 0.92178
+Epoch: 5; Loss: 0.19991; Acc: 0.91657: [1:30:33<00:00,  2.09it/s]
+Avg Acc: 0.94092
+Epoch: 6; Loss: 0.17701; Acc: 0.93012: [1:30:38<00:00,  2.30it/s]
+Avg Acc: 0.94876
+Epoch: 7; Loss: 0.06979; Acc: 0.94454: [1:30:33<00:00,  2.14it/s]
+Avg Acc: 0.95222
+Epoch: 8; Loss: 0.07817; Acc: 0.94772: [1:30:25<00:00,  2.22it/s]
+Avg Acc: 0.95426
+Epoch: 9; Loss: 0.02039; Acc: 0.95195: [1:30:28<00:00,  2.19it/s]
+Avg Acc: 0.95660
+Epoch: 10; Loss: 0.12727; Acc: 0.95570: [1:31:24<00:00,  2.21it/s]
+Avg Acc: 0.95769

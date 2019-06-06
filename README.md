@@ -1,6 +1,8 @@
 # MAC Network Augmented With Multiple Memories
 Memory, Attention and Composition (MAC) Network for CLEVR from Compositional Attention Networks for Machine Reasoning (https://arxiv.org/abs/1803.03067) implemented in PyTorch
 
+Built on https://github.com/rosinality/mac-network-pytorch
+
 Requirements:
 * Python 3
 * PyTorch 1.*
@@ -24,7 +26,7 @@ python image_feature.py [CLEVR directory]
 python train.py [CLEVR directory]
 ```
 
-Run `python train.py -h` for more options
+Run `python train.py --help` for more options
 
 ## Differences from MAC:
 Pending
