@@ -233,8 +233,8 @@ def main(clevr_dir, load_filename=None, n_epochs=20, n_memories=3, only_test=Fal
             # new format
             net.load_state_dict(checkpoint["model_state_dict"])
             optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-            start_epoch = checkpoint["epoch"]
-            print(f"Starting at epoch {start_epoch}")
+            start_epoch = checkpoint["epoch"]+1
+            print(f"Starting at epoch {start_epoch+1}")
 
     accumulate(accum_net, net, 0)  # copy net's parameters to accum_net
 
@@ -250,7 +250,7 @@ def main(clevr_dir, load_filename=None, n_epochs=20, n_memories=3, only_test=Fal
 
                 torch.save(
                     {
-                        "epoch": epoch,
+                        "epoch": epoch+1,
                         "model_state_dict": (
                             accum_net.module
                             if isinstance(accum_net, nn.DataParallel)
