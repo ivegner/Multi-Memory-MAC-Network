@@ -44,8 +44,6 @@ class WriteUnit(nn.Module):
     def __init__(self, n_neurons, dim, self_attention=False, memory_gate=False):
         super().__init__()
 
-        self.action = linear(dim * 2, dim)
-
         if self_attention:
             raise NotImplementedError("Haven't done self-attention yet")
             self.attn = linear(dim, 1)
@@ -67,7 +65,7 @@ class WriteUnit(nn.Module):
         # process new memories and controls?
         prev_memory = memories[-1]
         prev_control = controls[-1]
-        combined = new_memories * new_controls
+        # combined = new_memories * new_controls
 
         # if self.self_attention:
         #     controls_cat = torch.stack(controls[:-1], 2)
@@ -82,7 +80,7 @@ class WriteUnit(nn.Module):
         if self.memory_gate:
             control = self.control(controls[-1])
             gate = F.sigmoid(control)
-            combined = gate * prev_memory + (1 - gate) * combined
+            new_memories = gate * prev_memory + (1 - gate) * new_memories
 
         batch_size = new_memories.size(0)
 
@@ -92,12 +90,12 @@ class WriteUnit(nn.Module):
                 p = p.contiguous()
             return p.view([1, -1, self.dim])
 
-        prev_memory, prev_control, combined, new_controls = map(
-            flatten_for_gru, (prev_memory, prev_control, combined, new_controls)
+        prev_memory, prev_control, new_memories, new_controls = map(
+            flatten_for_gru, (prev_memory, prev_control, new_memories, new_controls)
         )
 
         next_control = self.control_update(new_controls, prev_control)[1]
-        next_memory = self.memory_update(combined, prev_memory)[1]
+        next_memory = self.memory_update(new_memories, prev_memory)[1]
 
         next_control = next_control.view([batch_size, self.n_neurons, self.dim])
         next_memory = next_memory.view([batch_size, self.n_neurons, self.dim])
@@ -129,7 +127,7 @@ class MACUnit(MACModule):
     def setup(self, batch_size):
         super().setup(batch_size)
         control = self.control_0.expand([batch_size, -1, -1])
-        memory = self.mem_0.expand([batch_size, -1,  -1])
+        memory = self.mem_0.expand([batch_size, -1, -1])
 
         if self.training:
             self.control_mask = self.get_mask(control, self.dropout)
@@ -141,19 +139,20 @@ class MACUnit(MACModule):
         self.memories = [memory]
         return control, memory
 
-    def forward(self, inputs):
+    def forward(self, control_inputs, memory_inputs):
         """ Perform one step of reasoning
 
-        inputs - a tensor of inputs to the network. They will be put directly
-            into memory and control. Shape: `[n_inputs, batch_size, dim*2]`
+        control_inputs, memory_inputs - a tensor of inputs to the network. They will be put directly
+            into memory and control. Shape: `[n_inputs, batch_size, dim]`
         """
-        n_inputs = inputs.size(0)
-        inputs = inputs.permute(1,0,2)
+        n_inputs = control_inputs.size(0)
+        control_inputs = control_inputs.permute(1, 0, 2)
+        memory_inputs = memory_inputs.permute(1, 0, 2)
         control = self.controls[-1].clone()
         memory = self.memories[-1].clone()
         # insert inputs. First DIM of each are control, second are memory
-        control[:, :n_inputs] = inputs[:, :, : self.dim]
-        memory[:, :n_inputs] = inputs[:, :, self.dim :]
+        control[:, :n_inputs] = control_inputs
+        memory[:, :n_inputs] = memory_inputs
 
         raw_control = self.control_unit(control)
         raw_memory = self.read_unit(control, memory)
@@ -207,7 +206,7 @@ class MACNetwork(nn.Module):
         self.mac = MACUnit(n_neurons, state_dim, self_attention, memory_gate, dropout)
 
         self.classifier = nn.Sequential(
-            linear(state_dim*2 + text_feature_dim * 2, state_dim),
+            linear(state_dim * 2 + text_feature_dim * 2, state_dim),
             nn.ELU(),
             linear(state_dim, classes),
         )
@@ -224,12 +223,11 @@ class MACNetwork(nn.Module):
 
         self.save_states = save_states
 
-
     def forward(self, image, question, question_len, dropout=0.15):
         batch_size = question.size(0)
         self.submodules["image_attn"].setup(batch_size, image)
         self.submodules["text_attn"].setup(batch_size, question, question_len)
-        control, memory = self.mac.setup(batch_size) # [b, n_neurons, state_dim]
+        control, memory = self.mac.setup(batch_size)  # [b, n_neurons, state_dim]
 
         if self.save_states:
             saved_states = {"submodules": [], "mac": []}
@@ -237,17 +235,20 @@ class MACNetwork(nn.Module):
         n_submodules = len(self.submodules)
 
         for step in range(self.max_step):
-            cat = torch.cat([control[:, :n_submodules], memory[:, :n_submodules]], -1)
-            cat = cat.permute(1, 0, 2)
-            # shape of cat: [n_submodules, b, dim*2]
+            cat = torch.stack([control[:, :n_submodules], memory[:, :n_submodules]], 0)
+            cat = cat.permute(2, 0, 1, 3)
+            # shape of cat: [n_submodules, 2, b, dim]
 
-            in_out = zip(self.submodules.values(), cat)
-            # outputs for each submodule = inputs to mac
-            submodule_outputs = torch.stack([m(x) for (m, x) in in_out], 0)
+            controls, memories = [], []
+            for i, _module in enumerate(self.submodules.values()):
+                (c, m) = _module(cat[i][0], cat[i][1])
+                controls.append(c)
+                memories.append(m)
+
             # Run MAC
-            control, memory = self.mac(submodule_outputs)
+            control, memory = self.mac(torch.stack(controls, 0), torch.stack(memories, 0))
             if self.save_states:
-                pass # TODO
+                pass  # TODO
                 # saved_states["submodules"].append(submodule_outputs)
                 # saved_states["grn"].append(_grn_hidden_states)
 
