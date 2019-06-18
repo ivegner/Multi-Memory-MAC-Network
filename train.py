@@ -5,6 +5,7 @@ from collections import Counter
 
 import numpy as np
 import torch
+torch.manual_seed(0)
 from torch import nn
 from torch import optim
 from torch.utils.data import DataLoader
@@ -86,11 +87,11 @@ def train(net, accum_net, optimizer, criterion, clevr_dir, epoch):
 
         # if wrapped in a DataParallel, the actual net is at DataParallel.module
         m = net.module if isinstance(net, nn.DataParallel) else net
-        torch.nn.utils.clip_grad_norm_(m.mac.read.parameters(), 1)
+        # torch.nn.utils.clip_grad_norm_(m.mac.read.parameters(), 1)
         # torch.nn.utils.clip_grad_value_(net.parameters(), 0.05)
 
-        # if i % 1000 == 0:
-        #     plot_grad_flow(net.named_parameters())
+        if i % 1000 == 0:
+            plot_grad_flow(net.named_parameters())
 
         optimizer.step()
         correct = output.detach().argmax(1) == answer
@@ -185,7 +186,10 @@ def test(accum_net, clevr_dir):
 @click.option("-l", "--load", "load_filename", type=str, help="load a model")
 @click.option("-e", "--n-epochs", default=20, show_default=True, help="Number of epochs")
 @click.option(
-    "-m", "--n-memories", default=3, show_default=True, help="Number of memories for the network"
+    "-n", "--n-neurons", default=3, show_default=True, help="Number of neurons for the network"
+)
+@click.option(
+    "-d", "--state-dim", default=512, show_default=True, help="Neuron state dimensions"
 )
 @click.option(
     "-t",
@@ -201,15 +205,14 @@ def test(accum_net, clevr_dir):
 #     show_default=True,
 #     help="Whether to load the model (from --load) strictly or loosely (loosely = ignore missing params in load file)",
 # )
-def main(clevr_dir, load_filename=None, n_epochs=20, n_memories=3, only_test=False):
+def main(clevr_dir, load_filename=None, n_epochs=20, n_neurons=3, state_dim=512, only_test=False):
     with open(os.path.join(clevr_dir, "preprocessed/dic.pkl"), "rb") as f:
         dic = pickle.load(f)
 
     n_words = len(dic["word_dic"]) + 1
     n_answers = len(dic["answer_dic"])
 
-    net = MACNetwork(n_words, dim, n_memories=n_memories, save_attns=only_test)
-    accum_net = MACNetwork(n_words, dim, n_memories=n_memories, save_attns=only_test)
+    net, accum_net = [MACNetwork(n_words, n_neurons, state_dim, save_states=only_test) for _ in range(2)]
     net = net.to(device)
     accum_net = accum_net.to(device)
 
@@ -223,18 +226,13 @@ def main(clevr_dir, load_filename=None, n_epochs=20, n_memories=3, only_test=Fal
         net = nn.DataParallel(net, device_ids=devices)
         accum_net = nn.DataParallel(accum_net, device_ids=devices)
 
+    print(net)
     if load_filename:
         checkpoint = torch.load(load_filename)
-        if checkpoint.get("model_state_dict", None) is None:
-            # old format - just the net, not a dict of stuff
-            print("Loading old-format checkpoint...")
-            net.load_state_dict(checkpoint)
-        else:
-            # new format
-            net.load_state_dict(checkpoint["model_state_dict"])
-            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-            start_epoch = checkpoint["epoch"]+1
-            print(f"Starting at epoch {start_epoch+1}")
+        net.module.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        start_epoch = checkpoint["epoch"]+1
+        print(f"Starting at epoch {start_epoch+1}")
 
     accumulate(accum_net, net, 0)  # copy net's parameters to accum_net
 
@@ -245,22 +243,20 @@ def main(clevr_dir, load_filename=None, n_epochs=20, n_memories=3, only_test=Fal
             valid(accum_net, clevr_dir, epoch)
 
             with open(
-                f"checkpoint/checkpoint_{str(epoch + 1).zfill(2)}_{n_memories}m.model", "wb"
+                f"checkpoint/checkpoint_{str(epoch + 1).zfill(2)}_{n_neurons}n.model", "wb"
             ) as f:
 
                 torch.save(
                     {
-                        "epoch": epoch+1,
+                        "epoch": epoch,
                         "model_state_dict": (
-                            accum_net.module
-                            if isinstance(accum_net, nn.DataParallel)
-                            else accum_net
+                            net.module if isinstance(net, nn.DataParallel) else net
                         ).state_dict(),
                         "optimizer_state_dict": optimizer.state_dict(),
                     },
                     f,
                 )
-    else:
+
         # predict on the test set and make visualization data
         test(accum_net, clevr_dir)
 
