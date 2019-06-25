@@ -27,7 +27,7 @@ for epoch in range(n_epoch):
     family_correct = Counter()
     family_total = Counter()
 
-    for image, question, q_len, answer, family in pbar:
+    for image, question, q_len, answer, family, _ in pbar:
         image, question = image.to(device), question.to(device)
         output = net(image, question, q_len)
         correct = output.detach().argmax(1) == answer.to(device)

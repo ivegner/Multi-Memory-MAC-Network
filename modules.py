@@ -3,6 +3,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch.nn.init import kaiming_uniform_, xavier_uniform_
 
+
 def linear(in_dim, out_dim, bias=True):
     lin = nn.Linear(in_dim, out_dim, bias=bias)
     xavier_uniform_(lin.weight)
@@ -23,6 +24,7 @@ class MACModule(nn.Module):
     def forward(self, control: torch.Tensor, memory: torch.Tensor):
         """ Perform one step of reasoning"""
         raise NotImplementedError()
+
 
 class ImageAttnModule(MACModule):
     def __init__(self, state_dim, image_feature_dim=512):
@@ -77,14 +79,18 @@ class ImageAttnModule(MACModule):
         out = self.out((attn * image).sum(2))
 
         # slice into control and memory
-        return torch.zeros_like(out), out
+        return torch.zeros_like(out), out, attn
 
 
 class TextAttnModule(MACModule):
-    def __init__(self, state_dim, n_vocab, embed_hidden=300, text_feature_dim=512):
+    def __init__(self, state_dim, n_vocab, max_step=12, embed_hidden=300, text_feature_dim=512):
         super().__init__()
 
-        self.concat = linear(text_feature_dim + text_feature_dim * 2, text_feature_dim)
+        self.position_aware = nn.ModuleList()
+        for i in range(max_step):
+            self.position_aware.append(linear(state_dim * 2, state_dim))
+
+        self.concat = linear(text_feature_dim * 2, text_feature_dim)
         self.attn = linear(text_feature_dim, 1)
         self.out = linear(text_feature_dim, state_dim)
 
@@ -107,8 +113,10 @@ class TextAttnModule(MACModule):
         hidden_state = hidden_state.permute(1, 0, 2).contiguous().view(batch_size, -1)
         self.input = (lstm_out, hidden_state)
 
-    def forward(self, control, memory):
+    def forward(self, control, memory, step):
         context, question = self.input
+        question = self.position_aware[step](question)
+
         query_question = torch.cat([control, question], 1)
         query_question = self.concat(query_question).unsqueeze(1)
 
@@ -120,5 +128,4 @@ class TextAttnModule(MACModule):
         out = self.out((attn * context).sum(1))
 
         # slice into control and memory
-        return out, torch.zeros_like(out)
-
+        return out, torch.zeros_like(out), attn

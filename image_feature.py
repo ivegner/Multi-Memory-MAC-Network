@@ -3,7 +3,7 @@ import torch
 from torchvision.models.resnet import ResNet, resnet101
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
-from transforms import Scale
+from torchvision.transforms import Resize
 import sys
 import os
 from PIL import Image
@@ -28,7 +28,7 @@ def forward(self, x):
 
 transform = transforms.Compose(
     [
-        Scale([224, 224]),
+        Resize([224, 224]),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ]
@@ -55,13 +55,6 @@ class CLEVR(Dataset):
         return self.length
 
 
-batch_size = 50
-
-resnet = resnet101(True).cuda()
-resnet.eval()
-resnet.forward = forward.__get__(resnet, ResNet)
-
-
 def create_dataset(split):
     root = sys.argv[1]
     dataloader = DataLoader(CLEVR(root, split), batch_size=batch_size, num_workers=4)
@@ -84,5 +77,12 @@ def create_dataset(split):
     f.close()
 
 
-create_dataset("val")
-create_dataset("train")
+if __name__ == "__main__":
+    batch_size = 50
+
+    resnet = resnet101(True).cuda()
+    resnet.eval()
+    resnet.forward = forward.__get__(resnet, ResNet)
+
+    create_dataset("val")
+    create_dataset("train")

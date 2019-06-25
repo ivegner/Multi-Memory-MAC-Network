@@ -5,6 +5,7 @@ from collections import Counter
 
 import numpy as np
 import torch
+
 torch.manual_seed(0)
 from torch import nn
 from torch import optim
@@ -16,48 +17,13 @@ from matplotlib.lines import Line2D
 
 from dataset import CLEVR, collate_data, transform
 from model import MACNetwork
+from visualize import plot_grad_flow, visualize
+
 
 batch_size = 64
 dim = 512
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-def plot_grad_flow(named_parameters):
-    """Plots the gradients flowing through different layers in the net during training.
-    Can be used for checking for possible gradient vanishing / exploding problems.
-
-    Usage: Plug this function in Trainer class after loss.backwards() as
-    "plot_grad_flow(self.model.named_parameters())" to visualize the gradient flow"""
-    ave_grads = []
-    max_grads = []
-    layers = []
-    for n, p in named_parameters:
-        if (p.requires_grad) and ("bias" not in n):
-            layers.append(n)
-            ave_grads.append(p.grad.abs().mean())
-            max_grads.append(p.grad.abs().max())
-    plt.bar(np.arange(len(max_grads)), max_grads, alpha=0.5, lw=1, color="c")
-    plt.bar(np.arange(len(max_grads)), ave_grads, alpha=0.5, lw=1, color="b")
-    plt.hlines(0, 0, len(ave_grads) + 1, lw=2, color="k")
-    plt.xticks(range(0, len(ave_grads), 1), layers, rotation="vertical")
-    plt.xlim(left=0, right=len(ave_grads))
-    plt.ylim(
-        bottom=-0.001, top=np.quantile(torch.tensor(max_grads).cpu(), 0.75)
-    )  # zoom in on the lower gradient regions
-    plt.xlabel("Layers")
-    plt.ylabel("average gradient")
-    plt.title("Gradient flow")
-    plt.grid(True)
-    plt.legend(
-        [
-            Line2D([0], [0], color="c", lw=4),
-            Line2D([0], [0], color="b", lw=4),
-            Line2D([0], [0], color="k", lw=4),
-        ],
-        ["max-gradient", "mean-gradient", "zero-gradient"],
-    )
-    plt.show()
 
 
 def accumulate(model1, model2, decay=0.999):
@@ -77,21 +43,43 @@ def train(net, accum_net, optimizer, criterion, clevr_dir, epoch):
     moving_loss = 0
 
     net.train(True)
-    for i, (image, question, q_len, answer, _) in enumerate(pbar):
+    for i, (image, question, q_len, answer, _, _) in enumerate(pbar):
         image, question, answer = (image.to(device), question.to(device), answer.to(device))
+
+        m = net.module if isinstance(net, nn.DataParallel) else net
 
         net.zero_grad()
         output = net(image, question, q_len)
         loss = criterion(output, answer)
+
+        # def get_batch_mean_pdist(mat):  # [b, n_neurons, dim]
+        #     return torch.stack([torch.pdist(b, p=2) for b in mat], 0).mean(0)
+
+        # # get similarity of states between neurons
+
+        # control_similarity = get_batch_mean_pdist(
+        #     torch.stack(saved_states["mac"]["control"], 0).view(
+        #         (-1, m.n_neurons, m.state_dim)
+        #     )
+        # )
+        # memory_similarity = get_batch_mean_pdist(
+        #     torch.stack(saved_states["mac"]["memory"], 0).view((-1, m.n_neurons, m.state_dim))
+        # )
+
+        # # print(control_similarity, memory_similarity)
+
+        # state_redundancy = (control_similarity + memory_similarity).sum()
+
+        # loss += state_redundancy
+
         loss.backward()
 
         # if wrapped in a DataParallel, the actual net is at DataParallel.module
-        m = net.module if isinstance(net, nn.DataParallel) else net
         # torch.nn.utils.clip_grad_norm_(m.mac.read.parameters(), 1)
         # torch.nn.utils.clip_grad_value_(net.parameters(), 0.05)
 
-        if i % 1000 == 0:
-            plot_grad_flow(net.named_parameters())
+        # if i % 1000 == 0:
+        #     plot_grad_flow(net.named_parameters())
 
         optimizer.step()
         correct = output.detach().argmax(1) == answer
@@ -121,7 +109,7 @@ def valid(accum_net, clevr_dir, epoch):
     family_correct = Counter()
     family_total = Counter()
     with torch.no_grad():
-        for image, question, q_len, answer, family in tqdm(dataset):
+        for image, question, q_len, answer, family, _ in tqdm(dataset):
             image, question = image.to(device), question.to(device)
 
             output = accum_net(image, question, q_len)
@@ -151,7 +139,7 @@ def test(accum_net, clevr_dir):
     family_correct = Counter()
     family_total = Counter()
     with torch.no_grad():
-        for image, question, q_len, answer, family in tqdm(dataset):
+        for image, question, q_len, answer, family, _ in tqdm(dataset):
             image, question = image.to(device), question.to(device)
 
             output = accum_net(image, question, q_len)
@@ -188,9 +176,7 @@ def test(accum_net, clevr_dir):
 @click.option(
     "-n", "--n-neurons", default=3, show_default=True, help="Number of neurons for the network"
 )
-@click.option(
-    "-d", "--state-dim", default=512, show_default=True, help="Neuron state dimensions"
-)
+@click.option("-d", "--state-dim", default=512, show_default=True, help="Neuron state dimensions")
 @click.option(
     "-t",
     "--only-test",
@@ -199,20 +185,35 @@ def test(accum_net, clevr_dir):
     show_default=True,
     help="Do not train. Only run tests and export results for visualization.",
 )
+@click.option(
+    "-vis",
+    "--only-vis",
+    default=False,
+    is_flag=True,
+    show_default=True,
+    help="Do not train. Only visualize.",
+)
 # @click.option(
 #     "--strict-load/--no-strict-load",
 #     default=True,
 #     show_default=True,
 #     help="Whether to load the model (from --load) strictly or loosely (loosely = ignore missing params in load file)",
 # )
-def main(clevr_dir, load_filename=None, n_epochs=20, n_neurons=3, state_dim=512, only_test=False):
-    with open(os.path.join(clevr_dir, "preprocessed/dic.pkl"), "rb") as f:
+def main(
+    clevr_dir,
+    load_filename=None,
+    n_epochs=20,
+    n_neurons=3,
+    state_dim=512,
+    only_test=False,
+    only_vis=False,
+):
+    with open(os.path.join(clevr_dir, "preprocessed", "dic.pkl"), "rb") as f:
         dic = pickle.load(f)
 
     n_words = len(dic["word_dic"]) + 1
     n_answers = len(dic["answer_dic"])
-
-    net, accum_net = [MACNetwork(n_words, n_neurons, state_dim, save_states=only_test) for _ in range(2)]
+    net, accum_net = [MACNetwork(n_words, n_neurons, state_dim) for _ in range(2)]
     net = net.to(device)
     accum_net = accum_net.to(device)
 
@@ -220,23 +221,22 @@ def main(clevr_dir, load_filename=None, n_epochs=20, n_neurons=3, state_dim=512,
     optimizer = optim.Adam(net.parameters(), lr=1e-4)
     start_epoch = 0
 
-    if device.type == "cuda":
-        devices = [0] if only_test else None
+    if device.type == "cuda" and not (only_test or only_vis):
         print("Using", torch.cuda.device_count(), "GPUs!")
-        net = nn.DataParallel(net, device_ids=devices)
-        accum_net = nn.DataParallel(accum_net, device_ids=devices)
+        net = nn.DataParallel(net)
+        accum_net = nn.DataParallel(accum_net)
 
     print(net)
     if load_filename:
         checkpoint = torch.load(load_filename)
-        net.module.load_state_dict(checkpoint["model_state_dict"])
+        net.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        start_epoch = checkpoint["epoch"]+1
+        start_epoch = checkpoint["epoch"] + 1
         print(f"Starting at epoch {start_epoch+1}")
 
     accumulate(accum_net, net, 0)  # copy net's parameters to accum_net
 
-    if not only_test:
+    if not (only_test or only_vis):
         # do training and validation
         for epoch in range(start_epoch, n_epochs):
             train(net, accum_net, optimizer, criterion, clevr_dir, epoch)
@@ -256,9 +256,10 @@ def main(clevr_dir, load_filename=None, n_epochs=20, n_neurons=3, state_dim=512,
                     },
                     f,
                 )
-
-        # predict on the test set and make visualization data
+    elif only_test:
         test(accum_net, clevr_dir)
+    else:
+        visualize(accum_net, clevr_dir, dic)
 
 
 if __name__ == "__main__":

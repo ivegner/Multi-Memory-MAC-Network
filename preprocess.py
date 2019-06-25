@@ -37,7 +37,10 @@ def process_question(root, out_dir, split, word_dic=None, answer_dic=None):
                 word_dic[word] = word_index
                 word_index += 1
 
-        answer_word = question["answer"]
+        try:
+            answer_word = question["answer"]
+        except:
+            print(question)
 
         try:
             answer = answer_dic[answer_word]
@@ -66,7 +69,7 @@ if __name__ == "__main__":
 
     word_dic, answer_dic = process_question(root, preprocessed_dir, "train")
     process_question(root, preprocessed_dir, "val", word_dic, answer_dic)
-    process_question(root, preprocessed_dir, "test", word_dic, answer_dic)
+    # process_question(root, preprocessed_dir, "test", word_dic, answer_dic)
 
     with open(os.path.join(preprocessed_dir, "dic.pkl"), "wb") as f:
         pickle.dump({"word_dic": word_dic, "answer_dic": answer_dic}, f)

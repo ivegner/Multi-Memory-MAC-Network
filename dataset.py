@@ -8,7 +8,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 import h5py
 
-from transforms import Scale
+from torchvision.transforms import Resize
 
 
 class CLEVR(Dataset):
@@ -35,7 +35,7 @@ class CLEVR(Dataset):
         id = int(imgfile.rsplit("_", 1)[1][:-4])
         img = torch.from_numpy(self.img[id])
 
-        return img, question, len(question), answer, family
+        return img, question, len(question), answer, family, imgfile
 
     def __len__(self):
         return len(self.data)
@@ -43,7 +43,7 @@ class CLEVR(Dataset):
 
 transform = transforms.Compose(
     [
-        Scale([224, 224]),
+        Resize([224, 224]),
         transforms.Pad(4),
         transforms.RandomCrop([224, 224]),
         transforms.ToTensor(),
@@ -53,7 +53,7 @@ transform = transforms.Compose(
 
 
 def collate_data(batch):
-    images, lengths, answers, families = [], [], [], []
+    images, lengths, answers, families, imgfiles = [], [], [], [], []
     batch_size = len(batch)
 
     max_len = max(map(lambda x: len(x[1]), batch))
@@ -62,13 +62,14 @@ def collate_data(batch):
     sort_by_len = sorted(batch, key=lambda x: len(x[1]), reverse=True)
 
     for i, b in enumerate(sort_by_len):
-        image, question, length, answer, family = b
+        image, question, length, answer, family, imgfile = b
         images.append(image)
         length = len(question)
         questions[i, :length] = question
         lengths.append(length)
         answers.append(answer)
         families.append(family)
+        imgfiles.append(imgfile)
 
     return (
         torch.stack(images),
@@ -76,4 +77,5 @@ def collate_data(batch):
         torch.tensor(lengths),
         torch.LongTensor(answers),
         families,
+        imgfiles,
     )

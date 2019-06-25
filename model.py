@@ -81,6 +81,7 @@ class WriteUnit(nn.Module):
             control = self.control(controls[-1])
             gate = F.sigmoid(control)
             new_memories = gate * prev_memory + (1 - gate) * new_memories
+            new_controls = gate * prev_control + (1 - gate) * new_controls
 
         batch_size = new_memories.size(0)
 
@@ -179,15 +180,13 @@ class MACNetwork(nn.Module):
         classes=28,
         image_feature_dim=512,
         text_feature_dim=512,
-        save_states=False,
         self_attention=False,
         memory_gate=False,
         dropout=0.15,
+        save_states=False,
     ):
         super().__init__()
 
-        if save_states:
-            raise NotImplementedError("Save states not done yet")
         self.submodules = nn.ModuleDict(
             [
                 ("image_attn", ImageAttnModule(state_dim, image_feature_dim=image_feature_dim)),
@@ -196,6 +195,7 @@ class MACNetwork(nn.Module):
                     TextAttnModule(
                         state_dim,
                         n_vocab,
+                        max_step=max_step,
                         embed_hidden=embed_hidden,
                         text_feature_dim=text_feature_dim,
                     ),
@@ -230,7 +230,15 @@ class MACNetwork(nn.Module):
         control, memory = self.mac.setup(batch_size)  # [b, n_neurons, state_dim]
 
         if self.save_states:
-            saved_states = {"submodules": [], "mac": []}
+            saved_states = {
+                "submodules": dict(
+                    [
+                        (name, {"control": [], "memory": [], "attn": []})
+                        for name in self.submodules.keys()
+                    ]
+                ),
+                "mac": {"control": [], "memory": []},
+            }
 
         n_submodules = len(self.submodules)
 
@@ -239,22 +247,31 @@ class MACNetwork(nn.Module):
             cat = cat.permute(2, 0, 1, 3)
             # shape of cat: [n_submodules, 2, b, dim]
 
+            kwargs = {"image_attn": {}, "text_attn": {"step": step}}
+
             controls, memories = [], []
-            for i, _module in enumerate(self.submodules.values()):
-                (c, m) = _module(cat[i][0], cat[i][1])
+            for i, (name, _module) in enumerate(self.submodules.items()):
+                (c, m, attn) = _module(cat[i][0], cat[i][1], **kwargs[name])
                 controls.append(c)
                 memories.append(m)
 
+                if self.save_states:
+                    saved_states["submodules"][name]["control"].append(c)
+                    saved_states["submodules"][name]["memory"].append(m)
+                    saved_states["submodules"][name]["attn"].append(attn)
+
             # Run MAC
-            control, memory = self.mac(torch.stack(controls, 0), torch.stack(memories, 0))
-            if self.save_states:
-                pass  # TODO
-                # saved_states["submodules"].append(submodule_outputs)
-                # saved_states["grn"].append(_grn_hidden_states)
+            cm = (torch.stack(controls, 0), torch.stack(memories, 0))
+            control, memory = self.mac(*cm)
+
+        if self.save_states:
+            saved_states["mac"]["control"] = self.mac.controls
+            saved_states["mac"]["memory"] = self.mac.memories
 
         # Read out output
         text_hidden_state = self.submodules["text_attn"].input[1]
         cat = torch.cat([control[:, -1], memory[:, -1]], -1)
+
         out = torch.cat([cat, text_hidden_state], 1)
         out = self.classifier(out)
 
