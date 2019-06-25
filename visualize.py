@@ -3,7 +3,8 @@ import pickle
 
 import torch
 import numpy as np
-import matplotlib as plt
+import matplotlib.pyplot as plt
+from matplotlib import pyplot
 from PIL import Image
 from matplotlib.lines import Line2D
 from dataset import CLEVR
@@ -20,6 +21,8 @@ def decode_token(token, dic):
         if idx == token:
             return word
 
+def round_tensor(t, n_digits=3):
+    return torch.round(t * 10**n_digits) / (10**n_digits)
 
 def visualize(net, clevr_dir, dics):
     net.eval()
@@ -42,7 +45,7 @@ def visualize(net, clevr_dir, dics):
         decoded_question = []
         for token_idx in question:
             decoded_question.append(decode_token(token_idx, word_dic))
-        print("Question", " ".join(decoded_question))
+        print("Question:", " ".join(decoded_question))
 
         prep_image, question, q_len = (
             prep_image.unsqueeze(0).to(device),
@@ -52,22 +55,32 @@ def visualize(net, clevr_dir, dics):
         output, saved_states = net(prep_image, question, q_len)
         output = output.detach().argmax(1).item()
         output = decode_token(output, answer_dic)
-        print(output)
+        print("Answer:", output)
 
         image_attns = saved_states["submodules"]["image_attn"]["attn"]
         text_attns = saved_states["submodules"]["text_attn"]["attn"]
-        for (image_attn, text_attn) in zip(image_attns, text_attns):
+        mac_control_attns = saved_states["mac"]["attn"]["control"]
+        mac_memory_attns = saved_states["mac"]["attn"]["memory"]
+        for (image_attn, text_attn, mac_ctrl_attn, mac_mem_attn) in zip(image_attns, text_attns, mac_control_attns, mac_memory_attns):
             image_attn = image_attn.squeeze().view(14, 14).detach().cpu().numpy()
             image_attn = np.expand_dims(transform(Image.fromarray(image_attn)), -1)
 
-            # print(image_attn)
+            print(np.max(image_attn))
+            image_attn = image_attn* (1/np.max(image_attn))
             numpy_img = np.array(img)
-            image_attn = numpy_img * image_attn
-            Image.fromarray(np.uint8(image_attn)).show()
+            image_attn = (numpy_img * image_attn).astype("uint8")
+            image = pyplot.imshow(image_attn)
+            pyplot.show()
 
+            print("--- QUESTION WEIGHTS  ---")
             text_attn = text_attn.squeeze()
-            print(text_attn)
-            input()
+            print([f"{word}:{weight:.2f}" for (word, weight) in zip(decoded_question, text_attn)])
+
+            print("--- MAC CONTROL ATTNS ---")
+            print(round_tensor(mac_ctrl_attn))
+            print("--- MAC MEMORY ATTNS  ---")
+            print(round_tensor(mac_mem_attn))
+            print("-"*24)
 
 
 def plot_grad_flow(named_parameters):

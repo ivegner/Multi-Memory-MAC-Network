@@ -20,7 +20,7 @@ from model import MACNetwork
 from visualize import plot_grad_flow, visualize
 
 
-batch_size = 64
+batch_size = 128
 dim = 512
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -78,7 +78,7 @@ def train(net, accum_net, optimizer, criterion, clevr_dir, epoch):
         # torch.nn.utils.clip_grad_norm_(m.mac.read.parameters(), 1)
         # torch.nn.utils.clip_grad_value_(net.parameters(), 0.05)
 
-        # if i % 1000 == 0:
+        # if i % 300 == 0:
         #     plot_grad_flow(net.named_parameters())
 
         optimizer.step()
@@ -123,50 +123,52 @@ def valid(accum_net, clevr_dir, epoch):
         for k, v in family_total.items():
             w.write("{}: {:.5f}\n".format(k, family_correct[k] / v))
 
-    print("Avg Acc: {:.5f}".format(sum(family_correct.values()) / sum(family_total.values())))
+    avg_acc = sum(family_correct.values()) / sum(family_total.values())
+    print(f"Avg Acc: {avg_acc:.5f}")
 
     clevr.close()
+    return avg_acc
 
 
-def test(accum_net, clevr_dir):
-    print("Starting tests!")
-    print(accum_net)
-    clevr = CLEVR(clevr_dir, "val", transform=None)
-    test_set = DataLoader(clevr, batch_size=batch_size, num_workers=4, collate_fn=collate_data)
-    dataset = iter(test_set)
+# def test(accum_net, clevr_dir):
+#     print("Starting tests!")
+#     print(accum_net)
+#     clevr = CLEVR(clevr_dir, "val", transform=None)
+#     test_set = DataLoader(clevr, batch_size=batch_size, num_workers=4, collate_fn=collate_data)
+#     dataset = iter(test_set)
 
-    accum_net.train(False)
-    family_correct = Counter()
-    family_total = Counter()
-    with torch.no_grad():
-        for image, question, q_len, answer, family, _ in tqdm(dataset):
-            image, question = image.to(device), question.to(device)
+#     accum_net.train(False)
+#     family_correct = Counter()
+#     family_total = Counter()
+#     with torch.no_grad():
+#         for image, question, q_len, answer, family, _ in tqdm(dataset):
+#             image, question = image.to(device), question.to(device)
 
-            output = accum_net(image, question, q_len)
+#             output = accum_net(image, question, q_len)
 
-            # if wrapped in a DataParallel, the actual net is at DataParallel.module
-            m = accum_net.module if isinstance(accum_net, nn.DataParallel) else accum_net
-            # [{read, write}, n_steps, batch_size, {??????, n_memories}]
-            attentions = m.saved_attns
-            for i, step in enumerate(attentions):
-                print(f"Step {i}")
-                print("Read attn shape:", torch.tensor(step["read"][0]).shape)
-                print(image.shape)
+#             # if wrapped in a DataParallel, the actual net is at DataParallel.module
+#             m = accum_net.module if isinstance(accum_net, nn.DataParallel) else accum_net
+#             # [{read, write}, n_steps, batch_size, {??????, n_memories}]
+#             attentions = m.saved_attns
+#             for i, step in enumerate(attentions):
+#                 print(f"Step {i}")
+#                 print("Read attn shape:", torch.tensor(step["read"][0]).shape)
+#                 print(image.shape)
 
-            sys.exit()
-            correct = output.detach().argmax(1) == answer.to(device)
-            for c, fam in zip(correct, family):
-                if c:
-                    family_correct[fam] += 1
-                family_total[fam] += 1
+#             sys.exit()
+#             correct = output.detach().argmax(1) == answer.to(device)
+#             for c, fam in zip(correct, family):
+#                 if c:
+#                     family_correct[fam] += 1
+#                 family_total[fam] += 1
 
-    with open("log/test_log.txt", "w") as w:
-        for k, v in family_total.items():
-            w.write("{}: {:.5f}\n".format(k, family_correct[k] / v))
+#     with open("log/test_log.txt", "w") as w:
+#         for k, v in family_total.items():
+#             w.write("{}: {:.5f}\n".format(k, family_correct[k] / v))
 
-    print("Avg Acc: {:.5f}".format(sum(family_correct.values()) / sum(family_total.values())))
+#     print("Avg Acc: {:.5f}".format(sum(family_correct.values()) / sum(family_total.values())))
 
-    clevr.close()
+#     clevr.close()
 
 
 @click.command()
@@ -221,11 +223,6 @@ def main(
     optimizer = optim.Adam(net.parameters(), lr=1e-4)
     start_epoch = 0
 
-    if device.type == "cuda" and not (only_test or only_vis):
-        print("Using", torch.cuda.device_count(), "GPUs!")
-        net = nn.DataParallel(net)
-        accum_net = nn.DataParallel(accum_net)
-
     print(net)
     if load_filename:
         checkpoint = torch.load(load_filename)
@@ -234,16 +231,24 @@ def main(
         start_epoch = checkpoint["epoch"] + 1
         print(f"Starting at epoch {start_epoch+1}")
 
+
+    if device.type == "cuda" and not (only_test or only_vis):
+        print("Using", torch.cuda.device_count(), "GPUs!")
+        net = nn.DataParallel(net)
+        accum_net = nn.DataParallel(accum_net)
+
+
     accumulate(accum_net, net, 0)  # copy net's parameters to accum_net
 
     if not (only_test or only_vis):
         # do training and validation
         for epoch in range(start_epoch, n_epochs):
             train(net, accum_net, optimizer, criterion, clevr_dir, epoch)
-            valid(accum_net, clevr_dir, epoch)
+            avg_accuracy = valid(accum_net, clevr_dir, epoch)
 
             with open(
-                f"checkpoint/checkpoint_{str(epoch + 1).zfill(2)}_{n_neurons}n.model", "wb"
+                f"checkpoint/checkpoint_{str(epoch + 1).zfill(2)}_{n_neurons}n_{round(avg_accuracy*100)}%.model",
+                "wb",
             ) as f:
 
                 torch.save(
@@ -257,7 +262,7 @@ def main(
                     f,
                 )
     elif only_test:
-        test(accum_net, clevr_dir)
+        avg_accuracy = valid(accum_net, clevr_dir, epoch)
     else:
         visualize(accum_net, clevr_dir, dic)
 

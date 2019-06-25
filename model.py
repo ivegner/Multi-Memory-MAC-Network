@@ -18,9 +18,9 @@ class ControlUnit(nn.Module):
     def forward(self, control):
         # attentions across other controls
         attn = self.attn(control)  # [n_neurons, n_neurons]
-        attn = F.softmax(attn, 1)
+        attn = F.softmax(attn, 2)
         new_controls = attn @ control  # [n_neurons, dim]
-        return new_controls
+        return new_controls, attn
 
 
 class ReadUnit(nn.Module):
@@ -34,10 +34,10 @@ class ReadUnit(nn.Module):
     def forward(self, control, memory):
         # attentions across memories
         attn = self.attn(control)  # [n_neurons, n_neurons]
-        attn = F.softmax(attn, 1)
+        attn = F.softmax(attn, 2)
 
         new_memories = attn @ memory  # [n_neurons, dim]
-        return new_memories
+        return new_memories, attn
 
 
 class WriteUnit(nn.Module):
@@ -155,8 +155,8 @@ class MACUnit(MACModule):
         control[:, :n_inputs] = control_inputs
         memory[:, :n_inputs] = memory_inputs
 
-        raw_control = self.control_unit(control)
-        raw_memory = self.read_unit(control, memory)
+        raw_control, control_attn = self.control_unit(control)
+        raw_memory, memory_attn = self.read_unit(control, memory)
         control, memory = self.write_unit(self.controls, self.memories, raw_control, raw_memory)
 
         if self.training:
@@ -166,7 +166,7 @@ class MACUnit(MACModule):
         self.controls.append(control)
         self.memories.append(memory)
 
-        return control, memory
+        return control, memory, (control_attn, memory_attn)
 
 
 class MACNetwork(nn.Module):
@@ -206,7 +206,7 @@ class MACNetwork(nn.Module):
         self.mac = MACUnit(n_neurons, state_dim, self_attention, memory_gate, dropout)
 
         self.classifier = nn.Sequential(
-            linear(state_dim * 2 + text_feature_dim * 2, state_dim),
+            linear(state_dim, state_dim),
             nn.ELU(),
             linear(state_dim, classes),
         )
@@ -237,7 +237,7 @@ class MACNetwork(nn.Module):
                         for name in self.submodules.keys()
                     ]
                 ),
-                "mac": {"control": [], "memory": []},
+                "mac": {"control": [], "memory": [], "attn": {"control": [], "memory": []}},
             }
 
         n_submodules = len(self.submodules)
@@ -262,7 +262,10 @@ class MACNetwork(nn.Module):
 
             # Run MAC
             cm = (torch.stack(controls, 0), torch.stack(memories, 0))
-            control, memory = self.mac(*cm)
+            control, memory, (control_attn, memory_attn) = self.mac(*cm)
+            if self.save_states:
+                saved_states["mac"]["attn"]["control"].append(control_attn)
+                saved_states["mac"]["attn"]["memory"].append(memory_attn)
 
         if self.save_states:
             saved_states["mac"]["control"] = self.mac.controls
@@ -270,9 +273,9 @@ class MACNetwork(nn.Module):
 
         # Read out output
         text_hidden_state = self.submodules["text_attn"].input[1]
-        cat = torch.cat([control[:, -1], memory[:, -1]], -1)
+        cat = memory[:, -1] #torch.cat([control[:, -1], memory[:, -1]], -1)
 
-        out = torch.cat([cat, text_hidden_state], 1)
+        out = cat #torch.cat([cat, text_hidden_state], 1)
         out = self.classifier(out)
 
         if self.save_states:
