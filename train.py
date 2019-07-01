@@ -52,18 +52,18 @@ def train(net, accum_net, optimizer, criterion, clevr_dir, epoch):
         output = net(image, question, q_len)
         loss = criterion(output, answer)
 
-        # def get_batch_mean_pdist(mat):  # [b, n_neurons, dim]
+        # def get_batch_mean_pdist(mat):  # [b, n_cells, dim]
         #     return torch.stack([torch.pdist(b, p=2) for b in mat], 0).mean(0)
 
-        # # get similarity of states between neurons
+        # # get similarity of states between cells
 
         # control_similarity = get_batch_mean_pdist(
         #     torch.stack(saved_states["mac"]["control"], 0).view(
-        #         (-1, m.n_neurons, m.state_dim)
+        #         (-1, m.n_cells, m.state_dim)
         #     )
         # )
         # memory_similarity = get_batch_mean_pdist(
-        #     torch.stack(saved_states["mac"]["memory"], 0).view((-1, m.n_neurons, m.state_dim))
+        #     torch.stack(saved_states["mac"]["memory"], 0).view((-1, m.n_cells, m.state_dim))
         # )
 
         # # print(control_similarity, memory_similarity)
@@ -176,9 +176,9 @@ def valid(accum_net, clevr_dir, epoch):
 @click.option("-l", "--load", "load_filename", type=str, help="load a model")
 @click.option("-e", "--n-epochs", default=20, show_default=True, help="Number of epochs")
 @click.option(
-    "-n", "--n-neurons", default=3, show_default=True, help="Number of neurons for the network"
+    "-n", "--n-cells", default=3, show_default=True, help="Number of cells for the network"
 )
-@click.option("-d", "--state-dim", default=512, show_default=True, help="Neuron state dimensions")
+@click.option("-d", "--state-dim", default=512, show_default=True, help="cell state dimensions")
 @click.option(
     "-t",
     "--only-test",
@@ -195,27 +195,28 @@ def valid(accum_net, clevr_dir, epoch):
     show_default=True,
     help="Do not train. Only visualize.",
 )
-# @click.option(
-#     "--strict-load/--no-strict-load",
-#     default=True,
-#     show_default=True,
-#     help="Whether to load the model (from --load) strictly or loosely (loosely = ignore missing params in load file)",
-# )
+@click.option(
+    "--strict-load/--no-strict-load",
+    default=True,
+    show_default=True,
+    help="Whether to load the model (from --load) strictly or loosely (loosely = ignore missing params in load file)",
+)
 def main(
     clevr_dir,
     load_filename=None,
     n_epochs=20,
-    n_neurons=3,
+    n_cells=3,
     state_dim=512,
     only_test=False,
     only_vis=False,
+    strict_load=True,
 ):
     with open(os.path.join(clevr_dir, "preprocessed", "dic.pkl"), "rb") as f:
         dic = pickle.load(f)
 
     n_words = len(dic["word_dic"]) + 1
     n_answers = len(dic["answer_dic"])
-    net, accum_net = [MACNetwork(n_words, n_neurons, state_dim) for _ in range(2)]
+    net, accum_net = [MACNetwork(n_words, n_cells, state_dim, memory_gate=True) for _ in range(2)]
     net = net.to(device)
     accum_net = accum_net.to(device)
 
@@ -226,17 +227,16 @@ def main(
     print(net)
     if load_filename:
         checkpoint = torch.load(load_filename)
-        net.load_state_dict(checkpoint["model_state_dict"])
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        net.load_state_dict(checkpoint["model_state_dict"], strict=strict_load)
+        if strict_load:
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start_epoch = checkpoint["epoch"] + 1
         print(f"Starting at epoch {start_epoch+1}")
-
 
     if device.type == "cuda" and not (only_test or only_vis):
         print("Using", torch.cuda.device_count(), "GPUs!")
         net = nn.DataParallel(net)
         accum_net = nn.DataParallel(accum_net)
-
 
     accumulate(accum_net, net, 0)  # copy net's parameters to accum_net
 
@@ -246,21 +246,22 @@ def main(
             train(net, accum_net, optimizer, criterion, clevr_dir, epoch)
             avg_accuracy = valid(accum_net, clevr_dir, epoch)
 
-            with open(
-                f"checkpoint/checkpoint_{str(epoch + 1).zfill(2)}_{n_neurons}n_{round(avg_accuracy*100)}%.model",
-                "wb",
-            ) as f:
+            if epoch % 2 == 0:
+                with open(
+                    f"checkpoint/checkpoint_{str(epoch + 1).zfill(2)}_{n_cells}n_{round(avg_accuracy*100)}%.model",
+                    "wb",
+                ) as f:
 
-                torch.save(
-                    {
-                        "epoch": epoch,
-                        "model_state_dict": (
-                            net.module if isinstance(net, nn.DataParallel) else net
-                        ).state_dict(),
-                        "optimizer_state_dict": optimizer.state_dict(),
-                    },
-                    f,
-                )
+                    torch.save(
+                        {
+                            "epoch": epoch,
+                            "model_state_dict": (
+                                net.module if isinstance(net, nn.DataParallel) else net
+                            ).state_dict(),
+                            "optimizer_state_dict": optimizer.state_dict(),
+                        },
+                        f,
+                    )
     elif only_test:
         avg_accuracy = valid(accum_net, clevr_dir, epoch)
     else:

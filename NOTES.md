@@ -92,3 +92,77 @@ Epoch: 19; Loss: 0.01097; Acc: 0.97169: [1:31:13<00:00,  2.01it/s]
 Avg Acc: 0.96233
 Epoch: 20; Loss: 0.00028; Acc: 0.97252: [1:31:16<00:00,  2.29it/s]
 Avg Acc: 0.96270
+
+# 10-cell MAC
+Epoch: 2; Loss: 0.88696; Acc: 0.48939: [23:19<00:00,  3.82it/s]
+Avg Acc: 0.47681
+Epoch: 3; Loss: 0.87297; Acc: 0.50860: [23:29<00:00,  4.16it/s]
+Avg Acc: 0.49574
+Epoch: 4; Loss: 0.74861; Acc: 0.54529: [23:24<00:00,  4.19it/s]
+Avg Acc: 0.52673
+Epoch: 5; Loss: 0.61717; Acc: 0.61448: [23:16<00:00,  3.68it/s]
+Avg Acc: 0.59394
+Epoch: 6; Loss: 0.60718; Acc: 0.63744: [23:27<00:00,  4.11it/s]
+Avg Acc: 0.62370
+Epoch: 7; Loss: 0.56248; Acc: 0.66192: [23:20<00:00,  4.22it/s]
+Avg Acc: 0.63901
+Epoch: 8; Loss: 0.47629; Acc: 0.68284: [23:14<00:00,  3.75it/s]
+Avg Acc: 0.64655
+Epoch: 9; Loss: 0.50212; Acc: 0.69319: [23:21<00:00,  4.34it/s]
+Avg Acc: 0.65693
+Epoch: 10; Loss: 0.50404; Acc: 0.70245: [23:26<00:00,  3.81it/s]
+Avg Acc: 0.65513
+Epoch: 11; Loss: 0.43532; Acc: 0.71525: [23:27<00:00,  3.79it/s]
+Avg Acc: 0.66435
+Epoch: 12; Loss: 0.44736; Acc: 0.72568: [23:28<00:00,  4.40it/s]
+Avg Acc: 0.66767
+Epoch: 13; Loss: 0.47610; Acc: 0.73740: [23:18<00:00,  4.16it/s]
+Avg Acc: 0.66925
+Epoch: 14; Loss: 0.44108; Acc: 0.75496: [23:17<00:00,  3.81it/s]
+Avg Acc: 0.68775
+Epoch: 15; Loss: 0.38218; Acc: 0.79661: [23:17<00:00,  4.27it/s]
+Avg Acc: 0.72594
+Epoch: 16; Loss: 0.30228; Acc: 0.84962: [23:27<00:00,  3.12it/s]
+Avg Acc: 0.79575
+Epoch: 17; Loss: 0.30702; Acc: 0.86732: [23:23<00:00,  3.83it/s]
+Avg Acc: 0.80723
+Epoch: 18; Loss: 0.29626; Acc: 0.87913: [23:21<00:00,  3.85it/s]
+Avg Acc: 0.80511
+Epoch: 19; Loss: 0.21234; Acc: 0.89393: [23:19<00:00,  3.33it/s]
+Avg Acc: 0.83490
+Epoch: 20; Loss: 0.22778; Acc: 0.90398: [23:28<00:00,  4.38it/s]
+Avg Acc: 0.84120
+Epoch: 21; Loss: 0.19717; Acc: 0.91572: [23:31<00:00,  3.78it/s]
+Avg Acc: 0.84946
+Epoch: 22; Loss: 0.13759; Acc: 0.91691: [23:29<00:00,  3.85it/s]
+Avg Acc: 0.85068
+...
+Epoch: 55; Loss: 0.00749; Acc: 0.98522:[23:39<00:00,  4.17it/s]
+Avg Acc: 0.87075
+...
+Epoch: 75; Loss: 0.07726; Acc: 0.99114: [23:32<00:00,  3.89it/s]
+Avg Acc: 0.86807
+
+# 32-cell MAC (classifier enabled during training)
+Epoch: 1; Loss: 0.93933; Acc: 0.43913 [27:34<00:00,  3.55it/s]
+Avg Acc: 0.40672
+...
+Epoch: 3; Loss: 0.85783; Acc: 0.49005 [27:46<00:00,  3.36it/s]
+Avg Acc: 0.41048
+Epoch: 4; Loss: 0.84266; Acc: 0.50313 [27:30<00:00,  3.25it/s]
+Avg Acc: 0.39640
+Epoch: 5; Loss: 0.81515; Acc: 0.51352 [27:35<00:00,  3.33it/s]
+Avg Acc: 0.40534
+Epoch: 6; Loss: 0.80390; Acc: 0.52346 [27:41<00:00,  3.48it/s]
+Avg Acc: 0.45227
+...
+Epoch: 16; Loss: 0.68252; Acc: 0.58936 [27:33<00:00,  3.22it/s]
+Avg Acc: 0.48780
+Epoch: 17; Loss: 0.71680; Acc: 0.59845 [27:28<00:00,  3.71it/s]
+Avg Acc: 0.48814
+Epoch: 18; Loss: 0.71462; Acc: 0.60698 [27:50<00:00,  3.54it/s]
+Avg Acc: 0.47626
+Epoch: 19; Loss: 0.72581; Acc: 0.62089 [27:49<00:00,  3.63it/s]
+Avg Acc: 0.48062
+Epoch: 20; Loss: 0.65033; Acc: 0.62814 [27:38<00:00,  2.78it/s]
+Avg Acc: 0.48284

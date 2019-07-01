@@ -59,7 +59,7 @@ class ImageAttnModule(MACModule):
 
     def forward(self, control, memory):
         image = self.input
-        # transform input from neuron into query (control+memory in MAC)
+        # transform input from cell into query (control+memory in MAC)
         mem = self.memory(memory).unsqueeze(2)
         # combine query with the image, and just the image as a bonus
         # permute to (batch, h*w, image_feature_dim)

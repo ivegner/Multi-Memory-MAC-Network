@@ -8,40 +8,40 @@ from modules import ImageAttnModule, TextAttnModule, linear, MACModule
 
 
 class ControlUnit(nn.Module):
-    def __init__(self, n_neurons, dim):
+    def __init__(self, n_cells, dim):
         super().__init__()
 
-        self.attn = linear(dim, n_neurons)
-        self.n_neurons = n_neurons
+        self.attn = linear(dim, n_cells)
+        self.n_cells = n_cells
         self.dim = dim
 
     def forward(self, control):
         # attentions across other controls
-        attn = self.attn(control)  # [n_neurons, n_neurons]
+        attn = self.attn(control)  # [n_cells, n_cells]
         attn = F.softmax(attn, 2)
-        new_controls = attn @ control  # [n_neurons, dim]
+        new_controls = attn @ control  # [n_cells, dim]
         return new_controls, attn
 
 
 class ReadUnit(nn.Module):
-    def __init__(self, n_neurons, dim):
+    def __init__(self, n_cells, dim):
         super().__init__()
 
-        self.attn = linear(dim, n_neurons)
-        self.n_neurons = n_neurons
+        self.attn = linear(dim, n_cells)
+        self.n_cells = n_cells
         self.dim = dim
 
     def forward(self, control, memory):
         # attentions across memories
-        attn = self.attn(control)  # [n_neurons, n_neurons]
+        attn = self.attn(control)  # [n_cells, n_cells]
         attn = F.softmax(attn, 2)
 
-        new_memories = attn @ memory  # [n_neurons, dim]
+        new_memories = attn @ memory  # [n_cells, dim]
         return new_memories, attn
 
 
 class WriteUnit(nn.Module):
-    def __init__(self, n_neurons, dim, self_attention=False, memory_gate=False):
+    def __init__(self, n_cells, dim, self_attention=False, memory_gate=False):
         super().__init__()
 
         if self_attention:
@@ -58,7 +58,7 @@ class WriteUnit(nn.Module):
         self.control_update = nn.GRU(dim, dim)
         self.memory_update = nn.GRU(dim, dim)
 
-        self.n_neurons = n_neurons
+        self.n_cells = n_cells
         self.dim = dim
 
     def forward(self, controls, memories, new_controls, new_memories):
@@ -77,12 +77,6 @@ class WriteUnit(nn.Module):
         #     attn_mem = (attn * memories_cat).sum(2)
         #     combined = self.mem(attn_mem) + combined
 
-        if self.memory_gate:
-            control = self.control(controls[-1])
-            gate = F.sigmoid(control)
-            new_memories = gate * prev_memory + (1 - gate) * new_memories
-            new_controls = gate * prev_control + (1 - gate) * new_controls
-
         batch_size = new_memories.size(0)
 
         def flatten_for_gru(p):
@@ -91,32 +85,38 @@ class WriteUnit(nn.Module):
                 p = p.contiguous()
             return p.view([1, -1, self.dim])
 
-        prev_memory, prev_control, new_memories, new_controls = map(
+        prev_memory_flat, prev_control_flat, new_memories_flat, new_controls_flat = map(
             flatten_for_gru, (prev_memory, prev_control, new_memories, new_controls)
         )
 
-        next_control = self.control_update(new_controls, prev_control)[1]
-        next_memory = self.memory_update(new_memories, prev_memory)[1]
+        next_control = self.control_update(new_controls_flat, prev_control_flat)[1]
+        next_memory = self.memory_update(new_memories_flat, prev_memory_flat)[1]
 
-        next_control = next_control.view([batch_size, self.n_neurons, self.dim])
-        next_memory = next_memory.view([batch_size, self.n_neurons, self.dim])
+        next_control = next_control.view([batch_size, self.n_cells, self.dim])
+        next_memory = next_memory.view([batch_size, self.n_cells, self.dim])
+
+        if self.memory_gate:
+            control = self.control(prev_control_flat.squeeze(0))
+            gate = F.sigmoid(control).view([batch_size, self.n_cells, 1])
+            next_memory = gate * prev_memory + (1 - gate) * next_memory
+            next_control = gate * prev_control + (1 - gate) * next_control
 
         return next_control, next_memory
 
 
 class MACUnit(MACModule):
-    def __init__(self, n_neurons, dim, self_attention=False, memory_gate=False, dropout=0.15):
+    def __init__(self, n_cells, dim, self_attention=False, memory_gate=False, dropout=0.15):
         super().__init__()
 
-        self.control_unit = ControlUnit(n_neurons, dim)
-        self.read_unit = ReadUnit(n_neurons, dim)
-        self.write_unit = WriteUnit(n_neurons, dim, self_attention, memory_gate)
+        self.control_unit = ControlUnit(n_cells, dim)
+        self.read_unit = ReadUnit(n_cells, dim)
+        self.write_unit = WriteUnit(n_cells, dim, self_attention, memory_gate)
 
-        self.mem_0 = nn.Parameter(torch.zeros(n_neurons, dim))
-        self.control_0 = nn.Parameter(torch.zeros(n_neurons, dim))
+        self.mem_0 = nn.Parameter(torch.zeros(n_cells, dim))
+        self.control_0 = nn.Parameter(torch.zeros(n_cells, dim))
 
         self.dim = dim
-        self.n_neurons = n_neurons
+        self.n_cells = n_cells
         self.dropout = dropout
 
     def get_mask(self, x, dropout):
@@ -173,7 +173,7 @@ class MACNetwork(nn.Module):
     def __init__(
         self,
         n_vocab,
-        n_neurons,
+        n_cells,
         state_dim,
         embed_hidden=300,
         max_step=12,
@@ -203,12 +203,10 @@ class MACNetwork(nn.Module):
             ]
         )
 
-        self.mac = MACUnit(n_neurons, state_dim, self_attention, memory_gate, dropout)
+        self.mac = MACUnit(n_cells, state_dim, self_attention, memory_gate, dropout)
 
         self.classifier = nn.Sequential(
-            linear(state_dim, state_dim),
-            nn.ELU(),
-            linear(state_dim, classes),
+            linear(state_dim, state_dim), nn.ELU(), linear(state_dim, classes)
         )
         for param in self.classifier.parameters():
             param.requires_grad = False
@@ -217,7 +215,7 @@ class MACNetwork(nn.Module):
 
         self.max_step = max_step
         self.state_dim = state_dim
-        self.n_neurons = n_neurons
+        self.n_cells = n_cells
         self.image_feature_dim = image_feature_dim
         self.text_feature_dim = text_feature_dim
 
@@ -227,7 +225,7 @@ class MACNetwork(nn.Module):
         batch_size = question.size(0)
         self.submodules["image_attn"].setup(batch_size, image)
         self.submodules["text_attn"].setup(batch_size, question, question_len)
-        control, memory = self.mac.setup(batch_size)  # [b, n_neurons, state_dim]
+        control, memory = self.mac.setup(batch_size)  # [b, n_cells, state_dim]
 
         if self.save_states:
             saved_states = {
@@ -273,9 +271,9 @@ class MACNetwork(nn.Module):
 
         # Read out output
         text_hidden_state = self.submodules["text_attn"].input[1]
-        cat = memory[:, -1] #torch.cat([control[:, -1], memory[:, -1]], -1)
+        cat = memory[:, -1]  # torch.cat([control[:, -1], memory[:, -1]], -1)
 
-        out = cat #torch.cat([cat, text_hidden_state], 1)
+        out = cat  # torch.cat([cat, text_hidden_state], 1)
         out = self.classifier(out)
 
         if self.save_states:
