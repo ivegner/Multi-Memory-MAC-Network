@@ -5,11 +5,13 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import pyplot
+from matplotlib.colors import ListedColormap
 from PIL import Image
 from matplotlib.lines import Line2D
 from dataset import CLEVR
 from torchvision.transforms import Resize
 from image_feature import CLEVR as ImageDataset
+import networkx as nx
 
 N_VIS = 10
 
@@ -21,8 +23,10 @@ def decode_token(token, dic):
         if idx == token:
             return word
 
+
 def round_tensor(t, n_digits=3):
-    return torch.round(t * 10**n_digits) / (10**n_digits)
+    return torch.round(t * 10 ** n_digits) / (10 ** n_digits)
+
 
 def visualize(net, clevr_dir, dics):
     net.eval()
@@ -61,16 +65,22 @@ def visualize(net, clevr_dir, dics):
         text_attns = saved_states["submodules"]["text_attn"]["attn"]
         mac_control_attns = saved_states["mac"]["attn"]["control"]
         mac_memory_attns = saved_states["mac"]["attn"]["memory"]
-        for (image_attn, text_attn, mac_ctrl_attn, mac_mem_attn) in zip(image_attns, text_attns, mac_control_attns, mac_memory_attns):
+
+        for (image_attn, text_attn, mac_ctrl_attn, mac_mem_attn) in zip(
+            image_attns, text_attns, mac_control_attns, mac_memory_attns
+        ):
+
+            f, (img_attn_ax, mem_attn_ax, ctrl_attn_ax) = plt.subplots(1, 3, figsize=(15, 15))
+
             image_attn = image_attn.squeeze().view(14, 14).detach().cpu().numpy()
             image_attn = np.expand_dims(transform(Image.fromarray(image_attn)), -1)
 
-            print(np.max(image_attn))
-            image_attn = image_attn* (1/np.max(image_attn))
+            print("Max attention:", np.max(image_attn))
+            image_attn = image_attn * (1 / np.max(image_attn))
             numpy_img = np.array(img)
             image_attn = (numpy_img * image_attn).astype("uint8")
-            image = pyplot.imshow(image_attn)
-            pyplot.show()
+            image = img_attn_ax.imshow(image_attn)
+            img_attn_ax.set_title("Image Attentions")
 
             print("--- QUESTION WEIGHTS  ---")
             text_attn = text_attn.squeeze()
@@ -78,9 +88,19 @@ def visualize(net, clevr_dir, dics):
 
             print("--- MAC CONTROL ATTNS ---")
             print(round_tensor(mac_ctrl_attn))
+            plot_graph_with_labels(mac_ctrl_attn[0], None, ctrl_attn_ax)
+            ctrl_attn_ax.set_title("Control Attentions")
             print("--- MAC MEMORY ATTNS  ---")
             print(round_tensor(mac_mem_attn))
-            print("-"*24)
+            plot_graph_with_labels(mac_mem_attn[0], None, mem_attn_ax)
+            mem_attn_ax.set_title("Memory Attentions")
+            print("-" * 24)
+
+            plt.subplots_adjust(left=0.04, bottom=0.0, right=1.0, top=0.9, wspace=0.0, hspace=0.0)
+            mng = plt.get_current_fig_manager()
+            mng.resize(*mng.window.maxsize())
+
+            plt.show()
 
 
 def plot_grad_flow(named_parameters):
@@ -118,3 +138,46 @@ def plot_grad_flow(named_parameters):
         ["max-gradient", "mean-gradient", "zero-gradient"],
     )
     plt.show()
+
+
+def plot_graph_with_labels(adjacency_matrix: torch.Tensor, mylabels: list, axes=None):
+
+    # weight = color alpha
+    CMAP_N = 256
+    reds = np.array([[1, 0, 0, 1]], dtype="float").repeat(CMAP_N, axis=0)
+    reds[:, -1] = np.linspace(0.0, 1.0, CMAP_N)
+    alpha_red_cmap = ListedColormap(reds, N=CMAP_N)
+
+    adj = adjacency_matrix.detach().cpu().numpy().T
+
+    gr = nx.from_numpy_matrix(adj, create_using=nx.DiGraph)
+    pos = nx.circular_layout(gr)
+    # nx.draw_networkx_nodes(gr, pos=pos, node_size=500, ax=axes)
+    # nx.draw_networkx_labels(gr, pos=pos, ax=axes)
+
+    # for (u, v) in gr.edges:
+    #     # draw one by one to allow setting edge transparency
+    #     weight = gr.get_edge_data(u, v)["weight"]
+    #     nx.draw_networkx_edges(
+    #         gr,
+    #         pos=pos,
+    #         ax=axes,
+    #         edgelist=[(u, v)],
+    #         # alpha=weight,
+    #         edge_cmap=alpha_red_cmap,
+    #         edge_color=[weight],
+    #         edge_vmin=0,
+    #         edge_vmax=1,
+    #     )
+    nx.draw(
+        gr,
+        pos=pos,
+        ax=axes,
+        node_size=500,
+        with_labels=True,
+        edge_cmap=alpha_red_cmap,
+        edge_color=[gr.get_edge_data(u, v)["weight"] for (u, v) in gr.edges],
+        edge_vmin=0,
+        edge_vmax=1,
+        connectionstyle="arc3,rad=0.2",
+    )
