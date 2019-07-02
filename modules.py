@@ -39,10 +39,12 @@ class ImageAttnModule(MACModule):
         self.conv[0].bias.data.zero_()
         kaiming_uniform_(self.conv[2].weight)
         self.conv[2].bias.data.zero_()
+
+        self.control = linear(state_dim, image_feature_dim)
         self.memory = linear(state_dim, image_feature_dim)
         self.concat = linear(image_feature_dim * 2, image_feature_dim)
         self.attn = linear(image_feature_dim, 1)
-        self.out = linear(image_feature_dim, state_dim)
+        self.out = linear(image_feature_dim + state_dim, state_dim)
 
         self.image_feature_dim = image_feature_dim
 
@@ -58,6 +60,7 @@ class ImageAttnModule(MACModule):
         self.input = image
 
     def forward(self, control, memory):
+        image_control = self.control(control)
         image = self.input
         # transform input from cell into query (control+memory in MAC)
         mem = self.memory(memory).unsqueeze(2)
@@ -66,7 +69,7 @@ class ImageAttnModule(MACModule):
         # this step may not be necessary
         concat = self.concat(torch.cat([mem * image, image], 1).permute(0, 2, 1))
 
-        attn = concat * control.unsqueeze(1)
+        attn = concat * image_control.unsqueeze(1)
         attn = self.attn(attn).squeeze(2)  # generate featurewise attn
         attn = F.softmax(attn, 1).unsqueeze(1)  # softmax featurewise attns
 
@@ -76,7 +79,7 @@ class ImageAttnModule(MACModule):
         # self.saved_attns.append(attn)
 
         # sum over pixels to give (b, image_feature_dim)
-        out = self.out((attn * image).sum(2))
+        out = self.out(torch.cat([(attn * image).sum(2), control], dim=-1))
 
         # slice into control and memory
         return torch.zeros_like(out), out, attn
@@ -88,11 +91,12 @@ class TextAttnModule(MACModule):
 
         self.position_aware = nn.ModuleList()
         for i in range(max_step):
-            self.position_aware.append(linear(state_dim * 2, state_dim))
+            self.position_aware.append(linear(text_feature_dim * 2, text_feature_dim))
 
+        self.control = linear(state_dim, text_feature_dim)
         self.concat = linear(text_feature_dim * 2, text_feature_dim)
         self.attn = linear(text_feature_dim, 1)
-        self.out = linear(text_feature_dim, state_dim)
+        self.out = linear(text_feature_dim + state_dim, state_dim)
 
         self.embed = nn.Embedding(n_vocab, embed_hidden)
         self.embed.weight.data.uniform_(0, 1)
@@ -117,15 +121,14 @@ class TextAttnModule(MACModule):
         context, question = self.input
         question = self.position_aware[step](question)
 
-        query_question = torch.cat([control, question], 1)
+        text_control = self.control(control)
+        query_question = torch.cat([text_control, question], 1)
         query_question = self.concat(query_question).unsqueeze(1)
 
-        context_prod = query_question * context
-        attn_weight = self.attn(context_prod)
-
+        attn_weight = self.attn(query_question * context)
         attn = F.softmax(attn_weight, 1)
 
-        out = self.out((attn * context).sum(1))
+        out = self.out(torch.cat([(attn * context).sum(1), control], dim=-1))
 
         # slice into control and memory
         return out, torch.zeros_like(out), attn

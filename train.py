@@ -21,7 +21,6 @@ from visualize import plot_grad_flow, visualize
 
 
 batch_size = 128
-dim = 512
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -201,6 +200,14 @@ def valid(accum_net, clevr_dir, epoch):
     show_default=True,
     help="Whether to load the model (from --load) strictly or loosely (loosely = ignore missing params in load file)",
 )
+@click.option(
+    "-c",
+    "--checkpoint-dir",
+    type=str,
+    default="checkpoint",
+    show_default=True,
+    help="Directory path to save the checkpoints in",
+)
 def main(
     clevr_dir,
     load_filename=None,
@@ -210,6 +217,7 @@ def main(
     only_test=False,
     only_vis=False,
     strict_load=True,
+    checkpoint_dir="checkpoint",
 ):
     with open(os.path.join(clevr_dir, "preprocessed", "dic.pkl"), "rb") as f:
         dic = pickle.load(f)
@@ -240,18 +248,25 @@ def main(
 
     accumulate(accum_net, net, 0)  # copy net's parameters to accum_net
 
+    prev_accuracy = 0.
     if not (only_test or only_vis):
         # do training and validation
         for epoch in range(start_epoch, n_epochs):
             train(net, accum_net, optimizer, criterion, clevr_dir, epoch)
             avg_accuracy = valid(accum_net, clevr_dir, epoch)
 
-            if epoch % 2 == 0:
+            if avg_accuracy >= prev_accuracy:
+                if not os.path.isdir(checkpoint_dir):
+                    os.makedirs(checkpoint_dir)
+
+
                 with open(
-                    f"checkpoint/checkpoint_{str(epoch + 1).zfill(2)}_{n_cells}n_{round(avg_accuracy*100)}%.model",
+                    os.path.join(
+                        checkpoint_dir,
+                        f"checkpoint_{n_cells}n_{round(avg_accuracy*100)}%.model",
+                    ),
                     "wb",
                 ) as f:
-
                     torch.save(
                         {
                             "epoch": epoch,
