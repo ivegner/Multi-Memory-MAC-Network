@@ -3,7 +3,7 @@ from torch.autograd import Variable
 from torch import nn
 from torch.nn.init import kaiming_uniform_, xavier_uniform_
 import torch.nn.functional as F
-
+import numpy as np
 from modules import ImageAttnModule, TextAttnModule, linear, MACModule
 
 
@@ -23,7 +23,7 @@ class ControlUnit(nn.Module):
         return new_controls, attn
 
 
-class ReadUnit(nn.Module):
+class MemoryUnit(nn.Module):
     def __init__(self, n_cells, dim):
         super().__init__()
 
@@ -38,6 +38,48 @@ class ReadUnit(nn.Module):
 
         new_memories = attn @ memory  # [n_cells, dim]
         return new_memories, attn
+
+
+class TransformUnit(nn.Module):
+    def __init__(self, n_cells, dim, cell_type_dim=32, n_filter_nn_layers=1,):
+        super().__init__()
+
+        out_flat_dim = dim ** 2
+        # "smooth" interpolation of neurons
+        # hidden_layer_units = np.linspace(
+        #     start=cell_type_dim + dim, stop=out_flat_dim, num=n_filter_nn_layers + 2, dtype=int
+        # ).tolist()
+        hidden_layer_units = [cell_type_dim+dim, cell_type_dim+dim, out_flat_dim]
+
+        # assemble layers
+        layers = []
+        for i, layer_units in enumerate(hidden_layer_units):
+            if i < len(hidden_layer_units) - 1:
+                layers.append(linear(layer_units, hidden_layer_units[i + 1]))
+                layers.append(nn.SELU())
+
+        self.filter_gen_fc = nn.Sequential(*layers)
+
+        self.cell_types = nn.Parameter(
+            nn.init.kaiming_uniform_(torch.empty((1, n_cells, cell_type_dim)))
+        )
+        self.n_cells = n_cells
+        self.dim = dim
+        self.cell_type_dim = cell_type_dim
+
+    def forward(self, control, memory):
+
+        batch_size = control.size(0)
+        concat = torch.cat([self.cell_types.expand((batch_size, -1, -1)), control], dim=-1)
+        concat_flat = concat.view(-1, (self.cell_type_dim + self.dim))
+        transformations = self.filter_gen_fc(concat_flat)
+        transformations = transformations.view(
+            [batch_size, self.n_cells, self.dim, self.dim]
+        )
+
+        new_memories = transformations @ memory.unsqueeze(-1) # (b, n_cells, dim, dim) * (b, n_cells, dim, 1)
+        new_memories = new_memories.squeeze(-1)
+        return new_memories
 
 
 class WriteUnit(nn.Module):
@@ -109,8 +151,9 @@ class MACUnit(MACModule):
         super().__init__()
 
         self.control_unit = ControlUnit(n_cells, dim)
-        self.read_unit = ReadUnit(n_cells, dim)
+        self.memory_unit = MemoryUnit(n_cells, dim)
         self.write_unit = WriteUnit(n_cells, dim, self_attention, memory_gate)
+        self.transform_unit = TransformUnit(n_cells, dim, cell_type_dim=32)
 
         self.mem_0 = nn.Parameter(torch.zeros(n_cells, dim))
         self.control_0 = nn.Parameter(torch.zeros(n_cells, dim))
@@ -156,8 +199,9 @@ class MACUnit(MACModule):
         memory[:, :n_inputs] = memory_inputs
 
         raw_control, control_attn = self.control_unit(control)
-        raw_memory, memory_attn = self.read_unit(control, memory)
-        control, memory = self.write_unit(self.controls, self.memories, raw_control, raw_memory)
+        raw_memory, memory_attn = self.memory_unit(control, memory)
+        transformed_memory = self.transform_unit(control, raw_memory)
+        control, memory = self.write_unit(self.controls, self.memories, raw_control, transformed_memory)
 
         if self.training:
             memory = memory * self.memory_mask
