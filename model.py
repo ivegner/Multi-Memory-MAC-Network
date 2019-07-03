@@ -8,32 +8,42 @@ from modules import ImageAttnModule, TextAttnModule, linear, MACModule
 
 
 class ControlUnit(nn.Module):
-    def __init__(self, n_cells, dim):
+    def __init__(self, n_cells, cell_types, control_dim, memory_dim):
         super().__init__()
-
-        self.attn = linear(dim, n_cells)
+        cell_type_dim = cell_types.size(-1)
+        self.attn = linear(control_dim + cell_type_dim, n_cells)
         self.n_cells = n_cells
-        self.dim = dim
+        self.memory_dim = memory_dim
+        self.control_dim = control_dim
+
+        self.cell_types = cell_types
 
     def forward(self, control):
+        batch_size = control.size(0)
+        concat = torch.cat([self.cell_types.expand((batch_size, -1, -1)), control], dim=-1)
         # attentions across other controls
-        attn = self.attn(control)  # [n_cells, n_cells]
+        attn = self.attn(concat)  # [n_cells, n_cells]
         attn = F.softmax(attn, 2)
         new_controls = attn @ control  # [n_cells, dim]
         return new_controls, attn
 
 
 class MemoryUnit(nn.Module):
-    def __init__(self, n_cells, dim):
+    def __init__(self, n_cells, cell_types, control_dim, memory_dim):
         super().__init__()
-
-        self.attn = linear(dim, n_cells)
+        cell_type_dim = cell_types.size(-1)
+        self.attn = linear(cell_type_dim + control_dim, n_cells)
         self.n_cells = n_cells
-        self.dim = dim
+        self.memory_dim = memory_dim
+        self.control_dim = control_dim
+
+        self.cell_types = cell_types
 
     def forward(self, control, memory):
+        batch_size = control.size(0)
+        concat = torch.cat([self.cell_types.expand((batch_size, -1, -1)), control], dim=-1)
         # attentions across memories
-        attn = self.attn(control)  # [n_cells, n_cells]
+        attn = self.attn(concat)  # [n_cells, n_cells]
         attn = F.softmax(attn, 2)
 
         new_memories = attn @ memory  # [n_cells, dim]
@@ -41,15 +51,19 @@ class MemoryUnit(nn.Module):
 
 
 class TransformUnit(nn.Module):
-    def __init__(self, n_cells, dim, cell_type_dim=32, n_filter_nn_layers=1,):
+    def __init__(self, n_cells, cell_types, control_dim, memory_dim, n_filter_nn_layers=1):
         super().__init__()
-
-        out_flat_dim = dim ** 2
+        cell_type_dim = cell_types.size(-1)
+        out_flat_dim = memory_dim ** 2
         # "smooth" interpolation of neurons
         # hidden_layer_units = np.linspace(
-        #     start=cell_type_dim + dim, stop=out_flat_dim, num=n_filter_nn_layers + 2, dtype=int
+        #     start=cell_type_dim + memory_dim, stop=out_flat_dim, num=n_filter_nn_layers + 2, dtype=int
         # ).tolist()
-        hidden_layer_units = [cell_type_dim+dim, cell_type_dim+dim, out_flat_dim]
+        hidden_layer_units = [
+            cell_type_dim + control_dim,
+            cell_type_dim + control_dim,
+            out_flat_dim,
+        ]
 
         # assemble layers
         layers = []
@@ -60,30 +74,31 @@ class TransformUnit(nn.Module):
 
         self.filter_gen_fc = nn.Sequential(*layers)
 
-        self.cell_types = nn.Parameter(
-            nn.init.kaiming_uniform_(torch.empty((1, n_cells, cell_type_dim)))
-        )
         self.n_cells = n_cells
-        self.dim = dim
+        self.memory_dim = memory_dim
+        self.control_dim = control_dim
         self.cell_type_dim = cell_type_dim
+
+        self.cell_types = cell_types
 
     def forward(self, control, memory):
 
         batch_size = control.size(0)
         concat = torch.cat([self.cell_types.expand((batch_size, -1, -1)), control], dim=-1)
-        concat_flat = concat.view(-1, (self.cell_type_dim + self.dim))
+        concat_flat = concat.view(-1, (self.cell_type_dim + self.control_dim))
         transformations = self.filter_gen_fc(concat_flat)
         transformations = transformations.view(
-            [batch_size, self.n_cells, self.dim, self.dim]
+            [batch_size, self.n_cells, self.memory_dim, self.memory_dim]
         )
 
-        new_memories = transformations @ memory.unsqueeze(-1) # (b, n_cells, dim, dim) * (b, n_cells, dim, 1)
+        # (b, n_cells, dim, dim) * (b, n_cells, dim, 1)
+        new_memories = transformations @ memory.unsqueeze(-1)
         new_memories = new_memories.squeeze(-1)
         return new_memories
 
 
 class WriteUnit(nn.Module):
-    def __init__(self, n_cells, dim, self_attention=False, memory_gate=False):
+    def __init__(self, n_cells, control_dim, memory_dim, self_attention=False, memory_gate=False):
         super().__init__()
 
         if self_attention:
@@ -92,16 +107,17 @@ class WriteUnit(nn.Module):
             self.mem = linear(dim, dim)
 
         if memory_gate:
-            self.control = linear(dim, 1)
+            self.control = linear(control_dim, 1)
 
         self.self_attention = self_attention
         self.memory_gate = memory_gate
 
-        self.control_update = nn.GRU(dim, dim)
-        self.memory_update = nn.GRU(dim, dim)
+        self.control_update = nn.GRU(control_dim, control_dim)
+        self.memory_update = nn.GRU(memory_dim, memory_dim)
 
         self.n_cells = n_cells
-        self.dim = dim
+        self.control_dim = control_dim
+        self.memory_dim = memory_dim
 
     def forward(self, controls, memories, new_controls, new_memories):
         # process new memories and controls?
@@ -121,21 +137,27 @@ class WriteUnit(nn.Module):
 
         batch_size = new_memories.size(0)
 
-        def flatten_for_gru(p):
+        def flatten_for_gru(p, dim):
             # flatten into single-batch units for GRU update
             if not p.is_contiguous():
                 p = p.contiguous()
-            return p.view([1, -1, self.dim])
+            return p.view([1, -1, dim])
 
         prev_memory_flat, prev_control_flat, new_memories_flat, new_controls_flat = map(
-            flatten_for_gru, (prev_memory, prev_control, new_memories, new_controls)
+            lambda x: flatten_for_gru(*x),
+            (
+                (prev_memory, self.memory_dim),
+                (prev_control, self.control_dim),
+                (new_memories, self.memory_dim),
+                (new_controls, self.control_dim),
+            ),
         )
 
         next_control = self.control_update(new_controls_flat, prev_control_flat)[1]
         next_memory = self.memory_update(new_memories_flat, prev_memory_flat)[1]
 
-        next_control = next_control.view([batch_size, self.n_cells, self.dim])
-        next_memory = next_memory.view([batch_size, self.n_cells, self.dim])
+        next_control = next_control.view([batch_size, self.n_cells, self.control_dim])
+        next_memory = next_memory.view([batch_size, self.n_cells, self.memory_dim])
 
         if self.memory_gate:
             control = self.control(prev_control_flat.squeeze(0))
@@ -147,18 +169,29 @@ class WriteUnit(nn.Module):
 
 
 class MACUnit(MACModule):
-    def __init__(self, n_cells, dim, self_attention=False, memory_gate=False, dropout=0.15):
+    def __init__(
+        self,
+        n_cells,
+        control_dim,
+        memory_dim,
+        cell_type_dim=32,
+        self_attention=False,
+        memory_gate=False,
+        dropout=0.15,
+    ):
         super().__init__()
+        self.cell_types = nn.Parameter(torch.rand((1, n_cells, cell_type_dim)))
+        self.control_unit = ControlUnit(n_cells, self.cell_types, control_dim, memory_dim)
+        self.memory_unit = MemoryUnit(n_cells, self.cell_types, control_dim, memory_dim)
+        self.transform_unit = TransformUnit(n_cells, self.cell_types, control_dim, memory_dim)
+        self.write_unit = WriteUnit(n_cells, control_dim, memory_dim, self_attention, memory_gate)
 
-        self.control_unit = ControlUnit(n_cells, dim)
-        self.memory_unit = MemoryUnit(n_cells, dim)
-        self.write_unit = WriteUnit(n_cells, dim, self_attention, memory_gate)
-        self.transform_unit = TransformUnit(n_cells, dim, cell_type_dim=32)
+        self.mem_0 = nn.Parameter(torch.zeros(n_cells, memory_dim))
+        self.control_0 = nn.Parameter(torch.zeros(n_cells, control_dim))
 
-        self.mem_0 = nn.Parameter(torch.zeros(n_cells, dim))
-        self.control_0 = nn.Parameter(torch.zeros(n_cells, dim))
+        self.control_dim = control_dim
+        self.memory_dim = memory_dim
 
-        self.dim = dim
         self.n_cells = n_cells
         self.dropout = dropout
 
@@ -201,7 +234,10 @@ class MACUnit(MACModule):
         raw_control, control_attn = self.control_unit(control)
         raw_memory, memory_attn = self.memory_unit(control, memory)
         transformed_memory = self.transform_unit(control, raw_memory)
-        control, memory = self.write_unit(self.controls, self.memories, raw_control, transformed_memory)
+        transformed_memory = raw_memory
+        control, memory = self.write_unit(
+            self.controls, self.memories, raw_control, transformed_memory
+        )
 
         if self.training:
             memory = memory * self.memory_mask
@@ -218,7 +254,8 @@ class MACNetwork(nn.Module):
         self,
         n_vocab,
         n_cells,
-        state_dim,
+        control_dim,
+        memory_dim,
         embed_hidden=300,
         max_step=12,
         classes=28,
@@ -233,11 +270,15 @@ class MACNetwork(nn.Module):
 
         self.submodules = nn.ModuleDict(
             [
-                ("image_attn", ImageAttnModule(state_dim, image_feature_dim=image_feature_dim)),
+                (
+                    "image_attn",
+                    ImageAttnModule(control_dim, memory_dim, image_feature_dim=image_feature_dim),
+                ),
                 (
                     "text_attn",
                     TextAttnModule(
-                        state_dim,
+                        control_dim,
+                        memory_dim,
                         n_vocab,
                         max_step=max_step,
                         embed_hidden=embed_hidden,
@@ -247,10 +288,17 @@ class MACNetwork(nn.Module):
             ]
         )
 
-        self.mac = MACUnit(n_cells, state_dim, self_attention, memory_gate, dropout)
+        self.mac = MACUnit(
+            n_cells,
+            control_dim,
+            memory_dim,
+            self_attention=self_attention,
+            memory_gate=memory_gate,
+            dropout=dropout,
+        )
 
         self.classifier = nn.Sequential(
-            linear(state_dim, state_dim), nn.ELU(), linear(state_dim, classes)
+            linear(memory_dim, memory_dim), nn.ELU(), linear(memory_dim, classes)
         )
         for param in self.classifier.parameters():
             param.requires_grad = False
@@ -258,7 +306,8 @@ class MACNetwork(nn.Module):
         kaiming_uniform_(self.classifier[0].weight)
 
         self.max_step = max_step
-        self.state_dim = state_dim
+        self.control_dim = control_dim
+        self.memory_dim = memory_dim
         self.n_cells = n_cells
         self.image_feature_dim = image_feature_dim
         self.text_feature_dim = text_feature_dim
@@ -285,15 +334,15 @@ class MACNetwork(nn.Module):
         n_submodules = len(self.submodules)
 
         for step in range(self.max_step):
-            cat = torch.stack([control[:, :n_submodules], memory[:, :n_submodules]], 0)
-            cat = cat.permute(2, 0, 1, 3)
-            # shape of cat: [n_submodules, 2, b, dim]
+            submodule_ctrl = control[:, :n_submodules].permute((1, 0, 2))
+            submodule_mem = memory[:, :n_submodules].permute((1, 0, 2))
+            # shape: [n_submodules, b, dim]
 
             kwargs = {"image_attn": {}, "text_attn": {"step": step}}
 
             controls, memories = [], []
             for i, (name, _module) in enumerate(self.submodules.items()):
-                (c, m, attn) = _module(cat[i][0], cat[i][1], **kwargs[name])
+                (c, m, attn) = _module(submodule_ctrl[i], submodule_mem[i], **kwargs[name])
                 controls.append(c)
                 memories.append(m)
 

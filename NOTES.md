@@ -166,3 +166,27 @@ Epoch: 19; Loss: 0.72581; Acc: 0.62089 [27:49<00:00,  3.63it/s]
 Avg Acc: 0.48062
 Epoch: 20; Loss: 0.65033; Acc: 0.62814 [27:38<00:00,  2.78it/s]
 Avg Acc: 0.48284
+
+# 10-cell MAC with matrix transformations in cells
+Epoch: 1; Loss: 0.89526; Acc: 0.49100: [1:24:48<00:00,  1.11it/s]
+Avg Acc: 0.48880
+Epoch: 2; Loss: 0.81675; Acc: 0.51316: [1:23:15<00:00,  1.15it/s]
+Avg Acc: 0.50738
+Epoch: 3; Loss: 0.76692; Acc: 0.53799: [1:23:09<00:00,  1.13it/s]
+Avg Acc: 0.53126
+Epoch: 4; Loss: 0.65962; Acc: 0.61479: [1:23:15<00:00,  1.15it/s]
+Avg Acc: 0.58704
+Epoch: 5; Loss: 0.55009; Acc: 0.66590: [1:23:11<00:00,  1.15it/s]
+Avg Acc: 0.64791
+Epoch: 6; Loss: 0.47732; Acc: 0.69377: [1:23:13<00:00,  1.09it/s]
+Avg Acc: 0.68261
+Epoch: 7; Loss: 0.49707; Acc: 0.71458: [1:23:05<00:00,  1.16it/s]
+Avg Acc: 0.70168
+Epoch: 8; Loss: 0.45677; Acc: 0.73128: [1:23:18<00:00,  1.12it/s]
+Avg Acc: 0.71738
+Epoch: 9; Loss: 0.50999; Acc: 0.74680: [1:23:13<00:00,  1.16it/s]
+Avg Acc: 0.73098
+Epoch: 10; Loss: 0.50410; Acc: 0.77228: [1:23:14<00:00,  1.15it/s]
+Avg Acc: 0.74987
+Epoch: 11; Loss: 0.44575; Acc: 0.79254: [1:23:10<00:00,  1.15it/s]
+Avg Acc: 0.76049

@@ -27,7 +27,7 @@ class MACModule(nn.Module):
 
 
 class ImageAttnModule(MACModule):
-    def __init__(self, state_dim, image_feature_dim=512):
+    def __init__(self, control_dim, memory_dim, image_feature_dim=512):
         super().__init__()
         self.conv = nn.Sequential(
             nn.Conv2d(1024, image_feature_dim, 3, padding=1),
@@ -40,16 +40,18 @@ class ImageAttnModule(MACModule):
         kaiming_uniform_(self.conv[2].weight)
         self.conv[2].bias.data.zero_()
 
-        self.control = linear(state_dim, image_feature_dim)
-        self.memory = linear(state_dim, image_feature_dim)
+        self.control = linear(control_dim, image_feature_dim)
+        self.memory = linear(memory_dim, image_feature_dim)
         self.concat = linear(image_feature_dim * 2, image_feature_dim)
         self.attn = linear(image_feature_dim, 1)
-        self.out = linear(image_feature_dim + state_dim, state_dim)
+        self.out = linear(image_feature_dim + control_dim, memory_dim)
 
         self.image_feature_dim = image_feature_dim
 
+        self.control_dim = control_dim
+        self.memory_dim = memory_dim
+
         # set dynamically
-        self.state_dim = state_dim
         self.input = None
 
     def setup(self, batch_size, image):
@@ -82,29 +84,33 @@ class ImageAttnModule(MACModule):
         out = self.out(torch.cat([(attn * image).sum(2), control], dim=-1))
 
         # slice into control and memory
-        return torch.zeros_like(out), out, attn
+        return control, out, attn
 
 
 class TextAttnModule(MACModule):
-    def __init__(self, state_dim, n_vocab, max_step=12, embed_hidden=300, text_feature_dim=512):
+    def __init__(
+        self, control_dim, memory_dim, n_vocab, max_step=12, embed_hidden=300, text_feature_dim=512
+    ):
         super().__init__()
 
         self.position_aware = nn.ModuleList()
         for i in range(max_step):
             self.position_aware.append(linear(text_feature_dim * 2, text_feature_dim))
 
-        self.control = linear(state_dim, text_feature_dim)
+        self.control = linear(control_dim, text_feature_dim)
         self.concat = linear(text_feature_dim * 2, text_feature_dim)
         self.attn = linear(text_feature_dim, 1)
-        self.out = linear(text_feature_dim + state_dim, state_dim)
+        self.out = linear(text_feature_dim + control_dim, control_dim)
 
         self.embed = nn.Embedding(n_vocab, embed_hidden)
         self.embed.weight.data.uniform_(0, 1)
         self.lstm = nn.LSTM(embed_hidden, text_feature_dim, batch_first=True, bidirectional=True)
         self.lstm_proj = nn.Linear(text_feature_dim * 2, text_feature_dim)
 
+        self.control_dim = control_dim
+        self.memory_dim = memory_dim
+
         # lstm_out, hidden_state
-        self.state_dim = state_dim
         self.input = (None, None)
 
     def setup(self, batch_size, question, question_len):
@@ -131,4 +137,4 @@ class TextAttnModule(MACModule):
         out = self.out(torch.cat([(attn * context).sum(1), control], dim=-1))
 
         # slice into control and memory
-        return out, torch.zeros_like(out), attn
+        return out, memory, attn

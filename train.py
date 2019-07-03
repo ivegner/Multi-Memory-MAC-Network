@@ -172,6 +172,7 @@ def valid(accum_net, clevr_dir, epoch):
 
 @click.command()
 @click.argument("clevr_dir")
+@click.option("-t", "--model-tag", required=True, help="identifier name for this model")
 @click.option("-l", "--load", "load_filename", type=str, help="load a model")
 @click.option("-e", "--n-epochs", default=20, show_default=True, help="Number of epochs")
 @click.option(
@@ -179,7 +180,6 @@ def valid(accum_net, clevr_dir, epoch):
 )
 @click.option("-d", "--state-dim", default=512, show_default=True, help="cell state dimensions")
 @click.option(
-    "-t",
     "--only-test",
     default=False,
     is_flag=True,
@@ -210,6 +210,7 @@ def valid(accum_net, clevr_dir, epoch):
 )
 def main(
     clevr_dir,
+    model_tag="",
     load_filename=None,
     n_epochs=20,
     n_cells=3,
@@ -224,7 +225,13 @@ def main(
 
     n_words = len(dic["word_dic"]) + 1
     n_answers = len(dic["answer_dic"])
-    net, accum_net = [MACNetwork(n_words, n_cells, state_dim, memory_gate=True) for _ in range(2)]
+
+    memory_dim = state_dim
+    control_dim = 128
+
+    net, accum_net = [
+        MACNetwork(n_words, n_cells, control_dim, memory_dim, memory_gate=True) for _ in range(2)
+    ]
     net = net.to(device)
     accum_net = accum_net.to(device)
 
@@ -248,7 +255,8 @@ def main(
 
     accumulate(accum_net, net, 0)  # copy net's parameters to accum_net
 
-    prev_accuracy = 0.
+    prev_accuracy = 0.0
+    prev_filename = None
     if not (only_test or only_vis):
         # do training and validation
         for epoch in range(start_epoch, n_epochs):
@@ -259,14 +267,8 @@ def main(
                 if not os.path.isdir(checkpoint_dir):
                     os.makedirs(checkpoint_dir)
 
-
-                with open(
-                    os.path.join(
-                        checkpoint_dir,
-                        f"checkpoint_{n_cells}n_{round(avg_accuracy*100)}%.model",
-                    ),
-                    "wb",
-                ) as f:
+                filename = os.path.join(checkpoint_dir, f"checkpoint_{n_cells}n_{model_tag}%.model")
+                with open(filename, "wb") as f:
                     torch.save(
                         {
                             "epoch": epoch,
@@ -277,6 +279,10 @@ def main(
                         },
                         f,
                     )
+                if prev_filename is not None and prev_filename != filename:
+                    # delete old only after successfully saving new
+                    os.remove(prev_filename)
+                prev_filename = filename
     elif only_test:
         avg_accuracy = valid(accum_net, clevr_dir, epoch)
     else:
