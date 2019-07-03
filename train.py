@@ -262,7 +262,7 @@ def main(
                 if not os.path.isdir(checkpoint_dir):
                     os.makedirs(checkpoint_dir)
 
-                filename = os.path.join(checkpoint_dir, f"checkpoint_{n_cells}n_{model_tag}%.model")
+                filename = os.path.join(checkpoint_dir, f"checkpoint_{n_cells}n_{model_tag}_{avg_accuracy}%.model")
                 with open(filename, "wb") as f:
                     torch.save(
                         {
