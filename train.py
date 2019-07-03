@@ -170,6 +170,7 @@ def valid(accum_net, clevr_dir, epoch):
 #     clevr.close()
 
 
+
 @click.command()
 @click.argument("clevr_dir")
 @click.option("-t", "--model-tag", required=True, help="identifier name for this model")
@@ -267,7 +268,7 @@ def main(
                 if not os.path.isdir(checkpoint_dir):
                     os.makedirs(checkpoint_dir)
 
-                filename = os.path.join(checkpoint_dir, f"checkpoint_{n_cells}n_{model_tag}%.model")
+                filename = os.path.join(checkpoint_dir, f"checkpoint_{n_cells}n_{model_tag}_{avg_accuracy}%.model")
                 with open(filename, "wb") as f:
                     torch.save(
                         {
@@ -287,6 +288,7 @@ def main(
         avg_accuracy = valid(accum_net, clevr_dir, epoch)
     else:
         visualize(accum_net, clevr_dir, dic)
+
 
 
 if __name__ == "__main__":
